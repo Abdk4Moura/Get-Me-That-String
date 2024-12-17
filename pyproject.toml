@@ -1,0 +1,14 @@
+[tool.poetry]
+name = "algoassessment"
+version = "0.1.0"
+description = "A server that searches for matches of a string given a configuration file"
+authors = ["Kolawole <pro.kaiserlautern@gmail.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

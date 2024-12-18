@@ -1,192 +1,159 @@
-#!/usr/bin/env python3
-
-#!/usr/bin/env python3
-
-import os
-import socketserver
 import ssl
+import socket
 import threading
 import time
+from typing import Optional, Set, Tuple, cast
+from pathlib import Path
+import configparser
 import logging
-from typing import List
+import argparse
 
-# ANSI escape codes for colorizing log messages
-class bcolors:
-    HEADER = '\033[95m'
-    OKBLUE = '\033[94m'
-    OKCYAN = '\033[96m'
-    OKGREEN = '\033[92m'
-    WARNING = '\033[93m'
-    FAIL = '\033[91m'
-    ENDC = '\033[0m'
-    BOLD = '\033[1m'
-    UNDERLINE = '\033[4m'
-
-# Configure the logger
-def setup_logger():
-    logger = logging.getLogger("ServerLogger")
-    logger.setLevel(logging.DEBUG)  # Set the lowest level to capture all messages
-
-    # Create a formatter that includes color codes
-    formatter = logging.Formatter(f"{bcolors.OKBLUE}%(asctime)s{bcolors.ENDC} - {bcolors.WARNING}%(levelname)s{bcolors.ENDC} - %(message)s", datefmt='%Y-%m-%d %H:%M:%S')
-
-    # Use a stream handler to print logs to console
-    ch = logging.StreamHandler()
-    ch.setLevel(logging.DEBUG)
-    ch.setFormatter(formatter)
-
-    logger.addHandler(ch)
-    return logger
+from config import ServerConfig, setup_logger
 
 
-class Config:
-    """Class to parse and hold configuration details."""
+class FileSearchServer:
+    """A multithreaded server that searches for exact matches in a file."""
 
-    def __init__(self, config_file: str, logger: logging.Logger):
-        self.file_path = ""
-        self.reread_on_query = False
-        self.ssl_enabled = False
-        self.cert_file = ""
-        self.key_file = ""
-        self.logger = logger  # Store the logger instance
-        self.load_config(config_file)
-
-    def load_config(self, config_file: str):
-        """Parses the configuration file."""
-        try:
-            with open(config_file, "r") as file:
-                for line in file:
-                    if line.startswith("linuxpath="):
-                        self.file_path = line.split("=", 1)[1].strip()
-                    elif line.startswith("REREAD_ON_QUERY="):
-                        self.reread_on_query = (
-                            line.split("=", 1)[1].strip().lower() == "true"
-                        )
-                    elif line.startswith("SSL_ENABLED="):
-                        self.ssl_enabled = (
-                            line.split("=", 1)[1].strip().lower() == "true"
-                        )
-                    elif line.startswith("CERT_FILE="):
-                        self.cert_file = line.split("=", 1)[1].strip()
-                    elif line.startswith("KEY_FILE="):
-                        self.key_file = line.split("=", 1)[1].strip()
-            self.logger.info(f"Config loaded from {config_file}")
-        except FileNotFoundError:
-            self.logger.error(f"Config file not found: {config_file}")
-            exit(1)  # Exit if config file is not found
-        except Exception as e:
-            self.logger.error(f"Error loading config: {e}")
-            exit(1) # Exit if other config error.
-
-
-class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
-    """Handles incoming TCP requests."""
-
-    def handle(self):
-        start_time = time.time()
-        client_ip = self.client_address[0]
-
-        # Receive data from the client
-        try:
-            data = self.request.recv(1024).strip().decode("utf-8")
-            data = data.rstrip("\x00")  # Strip null characters
-        except Exception as e:
-            self.server.logger.error(f"Error receiving data from {client_ip}: {e}")
-            return
-
-        # Check if query exists in the file
-        if self.server.config.reread_on_query:
-            try:
-                with open(self.server.config.file_path, "r") as file:
-                    lines = file.readlines()
-                    result = "STRING EXISTS" if data + "\n" in lines else "STRING NOT FOUND"
-            except Exception as e:
-                self.server.logger.error(f"Error reading file {self.server.config.file_path}: {e}")
-                result = "ERROR READING FILE" # Return something to client
-        else:
-            result = (
-                "STRING EXISTS"
-                if data in self.server.file_cache
-                else "STRING NOT FOUND"
-            )
-
-        # Respond to client
-        try:
-            self.request.sendall((result + "\n").encode("utf-8"))
-        except Exception as e:
-           self.server.logger.error(f"Error sending data to {client_ip}: {e}")
-           return
-
-        # Log the query
-        execution_time = time.time() - start_time
-        self.server.logger.debug(
-            f"Query: {data}, IP: {client_ip}, Time: {execution_time:.5f}s, Result: {result}"
-        )
-
-
-class FileSearchServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
-    """Threaded TCP Server."""
-
-    daemon_threads = True
-
-    def __init__(self, server_address, RequestHandlerClass, config: Config, logger: logging.Logger):
-        super().__init__(server_address, RequestHandlerClass)
-        self.config = config
+    def __init__(self, config_path: str, logger: logging.Logger):
         self.logger = logger
-        self.file_cache: List[str] = []
-        if not self.config.reread_on_query:
+        self.config_path = config_path
+        self.config = self._load_config()
+        self.port = self.config.port
+        self.ssl_enabled = self.config.ssl_enabled
+        self.reread_on_query = self.config.reread_on_query
+        self.linux_path = Path(self.config.linux_path)
+        self.ssl_context = self._setup_ssl() if self.ssl_enabled else None
+        self.file_lines = self._load_file_lines() if not self.reread_on_query else None
+        self.server_socket = self._setup_server()
+
+    def _load_config(self) -> ServerConfig:
+        """Load the server configuration from the config file."""
+        config = configparser.ConfigParser()
+        try:
+            config.read(self.config_path)
+        except Exception as e:
+            self.logger.error(f"Error reading config file: {e}")
+            exit(1)
+
+        if not config.has_section("Server"):
+            self.logger.error("Config file must have a [Server] section.")
+            exit(1)
+        try:
+            server_config = ServerConfig(
+                port=config.getint("Server", "port", fallback=44445),
+                ssl_enabled=config.getboolean("Server", "ssl", fallback=False),
+                reread_on_query=config.getboolean(
+                    "Server", "reread_on_query", fallback=True
+                ),
+                linux_path=config.get("Server", "linuxpath"),
+                certfile=config.get("Server", "certfile", fallback="server.crt"),
+                keyfile=config.get("Server", "keyfile", fallback="server.key"),
+            )
+        except Exception as e:
+            self.logger.error(f"Error parsing config file: {e}")
+            exit(1)
+        return server_config
+
+    def _setup_ssl(self) -> Optional[ssl.SSLContext]:
+        """Set up SSL context if enabled."""
+        try:
+            context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            context.load_cert_chain(
+                certfile=self.config.certfile, keyfile=self.config.keyfile
+            )
+            return context
+        except Exception as e:
+            self.logger.error(f"Error setting up SSL: {e}")
+            return None
+
+    def _setup_server(self) -> socket.socket:
+        """Bind and set up the server socket."""
+        try:
+            server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            server.bind(("", self.port))
+            server.listen(5)
+            self.logger.info(f"Server listening on port {self.port}")
+            return server
+        except Exception as e:
+            self.logger.error(f"Error setting up server socket: {e}")
+            exit(1)
+
+    def _load_file_lines(self) -> Set[str]:
+        """Load the file contents into memory."""
+        try:
+            with self.linux_path.open("r") as f:
+                lines = {line.strip() for line in f}
+            self.logger.info("File loaded into memory.")
+            return lines
+        except Exception as e:
+            self.logger.error(f"Error loading file: {e}")
+            exit(1)
+
+    def _handle_client(
+        self, client_socket: socket.socket, client_address: Tuple[str, int]
+    ):
+        """Handle client requests in a separate thread."""
+        with client_socket:
+            start_time = time.time()
             try:
-                with open(self.config.file_path, "r") as file:
-                    self.file_cache = [line.strip() for line in file]
-                    self.logger.info(f"File cache loaded from: {self.config.file_path}")
+                data = client_socket.recv(1024).decode("utf-8").strip("\x00")
+                if not data:
+                    client_socket.sendall(b"STRING NOT FOUND\n")
+                    return
+
+                lines = (
+                    self._load_file_lines()
+                    if self.reread_on_query else self.file_lines
+                )
+
+                lines = cast(set[str], lines)
+                response = (
+                    b"STRING EXISTS\n" if data in lines else b"\
+                        STRING NOT FOUND\n"
+                )
+                client_socket.sendall(response)
+
+                end_time = time.time()
+                self.logger.debug(
+                    f"DEBUG: Query='{data}', IP={client_address[0]},\
+                          Time={end_time - start_time:.5f}s"
+                )
+
             except Exception as e:
-                self.logger.error(f"Error loading file cache: {e}")
-                exit(1)
+                self.logger.error(f"Error handling client\
+                                   {client_address}: {e}")
+
+    def start(self) -> None:
+        """Start the server and accept connections."""
+        try:
+            while True:
+                client_socket, client_address = self.server_socket.accept()
+                self.logger.info(f"Connection from {client_address}")
+                if self.ssl_context:
+                    client_socket = self.ssl_context.wrap_socket(
+                        client_socket, server_side=True
+                    )
+                threading.Thread(
+                    target=self._handle_client, args=(client_socket,
+                                                      client_address)).start()
+        except Exception as e:
+            self.logger.critical(f"Server failed to start: {e}")
+            exit(1)
 
 
 if __name__ == "__main__":
-    import argparse
+    logger = setup_logger()
 
-    parser = argparse.ArgumentParser(description="Start the TCP server.")
+    parser = argparse.ArgumentParser(description="Start\
+                                      the File Search Server.")
     parser.add_argument(
-        "--config", required=True, help="Path to the configuration file."
-    )
-    parser.add_argument(
-        "--port", type=int, default=44445, help="Port to bind the server to."
+        "--config", required=True, help="Path\
+              to the server configuration file."
     )
     args = parser.parse_args()
 
-    # Set up logger
-    logger = setup_logger()
-
-    # Load configuration
-    config = Config(args.config, logger)
-
-    # Set up server
-    server = FileSearchServer(
-        ("0.0.0.0", args.port), ThreadedTCPRequestHandler, config, logger
-    )
-
-    # Enable SSL if configured
-    if config.ssl_enabled:
-        try:
-            server.socket = ssl.wrap_socket(
-                server.socket,
-                server_side=True,
-                certfile=config.cert_file,
-                keyfile=config.key_file,
-                ssl_version=ssl.PROTOCOL_TLS,
-            )
-            logger.info("SSL enabled")
-        except Exception as e:
-            logger.error(f"Error enabling SSL: {e}")
-            exit(1)
-
-    logger.info(f"Server running on port {args.port}. SSL: {config.ssl_enabled}")
-
-    # Run server
     try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        logger.info("Shutting down the server.")
-        server.shutdown()
+        server = FileSearchServer(args.config, logger)
+        server.start()
+    except Exception as e:
+        logger.critical(f"Server failed to start: {e}")

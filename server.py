@@ -124,7 +124,7 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
         )
 
 
-class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
+class FileSearchServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     """Threaded TCP Server."""
 
     daemon_threads = True
@@ -132,7 +132,7 @@ class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     def __init__(self, server_address, RequestHandlerClass, config: Config, logger: logging.Logger):
         super().__init__(server_address, RequestHandlerClass)
         self.config = config
-        self.logger = logger # Store the logger instance
+        self.logger = logger
         self.file_cache: List[str] = []
         if not self.config.reread_on_query:
             try:
@@ -141,7 +141,7 @@ class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
                     self.logger.info(f"File cache loaded from: {self.config.file_path}")
             except Exception as e:
                 self.logger.error(f"Error loading file cache: {e}")
-                exit(1) # Exit because cache loading failed.
+                exit(1)
 
 
 if __name__ == "__main__":
@@ -163,7 +163,7 @@ if __name__ == "__main__":
     config = Config(args.config, logger)
 
     # Set up server
-    server = ThreadedTCPServer(
+    server = FileSearchServer(
         ("0.0.0.0", args.port), ThreadedTCPRequestHandler, config, logger
     )
 
@@ -180,7 +180,7 @@ if __name__ == "__main__":
             logger.info("SSL enabled")
         except Exception as e:
             logger.error(f"Error enabling SSL: {e}")
-            exit(1) # Exit on SSL errors.
+            exit(1)
 
     logger.info(f"Server running on port {args.port}. SSL: {config.ssl_enabled}")
 

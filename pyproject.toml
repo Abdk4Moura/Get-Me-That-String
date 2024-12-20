@@ -4,10 +4,12 @@ version = "0.1.0"
 description = "A server that searches for matches of a string given a configuration file"
 authors = ["Kolawole <pro.kaiserlautern@gmail.com>"]
 readme = "README.md"
+packages = [{ include = "core" }]
 
 [tool.poetry.dependencies]
 python = "^3.10"
-logging = "^0.4.9.6"
+# Removed logging, since this is not a dependency
+# logging = "^0.4.9.6"
 
 [tool.poetry.group.dev.dependencies]
 # Linting and formatting

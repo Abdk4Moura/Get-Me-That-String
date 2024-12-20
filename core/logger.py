@@ -12,15 +12,15 @@ class bcolors:
     BOLD = "\033[1m"
     UNDERLINE = "\033[4m"
 
-def setup_logger() -> logging.Logger:
+
+def setup_logger(name: str = "AppLogger") -> logging.Logger:
     """Set up and return a configured logger."""
-    logger = logging.getLogger("ServerLogger")
+    logger = logging.getLogger(name)
     logger.setLevel(logging.DEBUG)
 
     # Create a formatter that includes color codes
     formatter = logging.Formatter(
-        f"{bcolors.OKBLUE}%(asctime)s{bcolors.ENDC} - "
-        f"{bcolors.WARNING}%(levelname)s{bcolors.ENDC} - %(message)s",
+        f"{bcolors.OKBLUE}%(asctime)s{bcolors.ENDC} - {bcolors.WARNING}%(levelname)s{bcolors.ENDC} - %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
@@ -28,7 +28,7 @@ def setup_logger() -> logging.Logger:
     ch.setLevel(logging.DEBUG)
     ch.setFormatter(formatter)
 
-    fh = logging.FileHandler("server.log")
+    fh = logging.FileHandler(f"{name}.log")
     fh.setLevel(logging.DEBUG)
     fh.setFormatter(formatter)
 

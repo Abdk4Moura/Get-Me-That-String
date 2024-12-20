@@ -6,8 +6,12 @@ from typing import Optional, Set, Tuple
 from pathlib import Path
 import logging
 import argparse
-from config import ServerConfig, load_config
-from logging import setup_logger
+from core.config import (
+    ServerConfig,
+    load_server_config,
+    load_extra_server_config,
+)
+from core.logger import setup_logger
 
 
 class FileSearchServer:
@@ -21,7 +25,9 @@ class FileSearchServer:
         self.reread_on_query = self.config.reread_on_query
         self.linux_path = Path(self.config.linux_path)
         self.ssl_context = self._setup_ssl() if self.ssl_enabled else None
-        self.file_lines = self._load_file_lines() if not self.reread_on_query else None
+        self.file_lines = (
+            self._load_file_lines() if not self.reread_on_query else None
+        )
         self.server_socket = self._setup_server()
 
     def _setup_ssl(self) -> Optional[ssl.SSLContext]:
@@ -72,24 +78,26 @@ class FileSearchServer:
                     return
 
                 lines = (
-                    self._load_file_lines() if self.reread_on_query else self.file_lines
+                    self._load_file_lines()
+                    if self.reread_on_query
+                    else self.file_lines
                 )
 
                 response = (
-                    b"STRING EXISTS\n" if data in lines else b"STRING NOT FOUND\n"
+                    b"STRING EXISTS\n"
+                    if data in lines
+                    else b"STRING NOT FOUND\n"
                 )
                 client_socket.sendall(response)
 
                 end_time = time.time()
                 self.logger.debug(
-                    f"DEBUG: Query='{data}', IP={client_address[0]},\
-                          Time={end_time - start_time:.5f}s"
+                    f"DEBUG: Query='{data}', IP={client_address[0]}, Time={end_time - start_time:.5f}s"
                 )
 
             except Exception as e:
                 self.logger.error(
-                    f"Error handling client\
-                                   {client_address}: {e}"
+                    f"Error handling client {client_address}: {e}"
                 )
 
     def start(self) -> None:
@@ -103,7 +111,8 @@ class FileSearchServer:
                         client_socket, server_side=True
                     )
                 threading.Thread(
-                    target=self._handle_client, args=(client_socket, client_address)
+                    target=self._handle_client,
+                    args=(client_socket, client_address),
                 ).start()
         except Exception as e:
             self.logger.critical(f"Server failed to start: {e}")
@@ -113,17 +122,62 @@ class FileSearchServer:
 if __name__ == "__main__":
     logger = setup_logger(name="ServerLogger")
 
-    parser = argparse.ArgumentParser(description="Start the File Search Server.")
-    parser.add_argument(
-        "--config", required=True, help="Path to the server configuration file."
+    parser = argparse.ArgumentParser(
+        description="Start the File Search Server."
     )
+    parser.add_argument(
+        "--config",
+        required=True,
+        help="Path to the server configuration file with linuxpath.",
+    )
+    parser.add_argument(
+        "--server_config",
+        required=False,
+        help="Path to the server configuration file.",
+    )
+    parser.add_argument("--port", type=int, help="Port to bind the server to.")
+    parser.add_argument("--ssl_enabled", type=bool, help="Enable SSL.")
+    parser.add_argument(
+        "--reread_on_query",
+        type=bool,
+        help="Set to true to reread config file.",
+    )
+    parser.add_argument("--certfile", type=str, help="Path to certificate file")
+    parser.add_argument("--keyfile", type=str, help="Path to key file.")
+
     args = parser.parse_args()
 
     try:
-        server_config, _ = load_config(args.config, logger)
+        server_config = load_server_config(args.config, logger)
         if not server_config:
-            logger.error("Server config missing in config file.")
+            logger.error(
+                "Server config missing in config file, and linuxpath is required."
+            )
             exit(1)
+
+        if args.server_config:
+            extra_server_config = load_extra_server_config(
+                args.server_config, logger
+            )
+            if extra_server_config:
+                server_config = extra_server_config
+                logger.info(
+                    f"Extra Server configuration loaded: {server_config}"
+                )
+
+        # Override server config with command line arguments.
+        if args.port:
+            server_config.port = args.port
+        if args.ssl_enabled is not None:
+            server_config.ssl_enabled = args.ssl_enabled
+        if args.reread_on_query is not None:
+            server_config.reread_on_query = args.reread_on_query
+        if args.certfile:
+            server_config.certfile = args.certfile
+        if args.keyfile:
+            server_config.keyfile = args.keyfile
+
+        logger.info(f"Server configuration: {server_config}")
         server = FileSearchServer(server_config, logger)
         server.start()
     except Exception as e:

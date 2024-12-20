@@ -1,8 +1,8 @@
 import time
 import csv
 from typing import Dict, List
-from pathlib import Path
 import random
+import multiprocessing
 from core.algorithms.linear_search import LinearSearch
 from core.algorithms.set_search import SetSearch
 from core.algorithms.mmap_search import MMapSearch
@@ -54,11 +54,47 @@ def run_speed_test(
     }
 
 
+def run_concurrency_test(
+    algorithm: SearchAlgorithm,
+    filepath: str,
+    query: str,
+    num_runs: int,
+    num_concurrent: int,
+    reread_on_query: bool = False,
+) -> Dict:
+    """Tests concurrency of the algorithms"""
+
+    def worker(filepath, query, algorithm):
+        start_time = time.time()
+        algorithm.search(filepath, query)
+        end_time = time.time()
+        return end_time - start_time
+
+    start_time = time.time()
+    with multiprocessing.Pool(processes=num_concurrent) as pool:
+        times = pool.starmap(
+            worker, [(filepath, query, algorithm) for _ in range(num_runs)]
+        )
+    end_time = time.time()
+    total_time = end_time - start_time
+    return {
+        "algorithm": algorithm.__class__.__name__,
+        "filepath": filepath,
+        "query": query,
+        "num_runs": num_runs,
+        "num_concurrent": num_concurrent,
+        "reread_on_query": reread_on_query,
+        "avg_time": sum(times) / num_runs if times else 0,
+        "total_time": total_time,
+    }
+
+
 def collect_speed_test_data(
     filepaths: List[str],
     queries: List[str],
     num_runs: int = 10,
     reread_on_query: bool = False,
+    num_concurrent: int = 1,
 ) -> List[Dict]:
     """Collect speed test data for different algorithms."""
     algorithms = [
@@ -75,9 +111,19 @@ def collect_speed_test_data(
     for algorithm in algorithms:
         for filepath in filepaths:
             for query in queries:
-                result = run_speed_test(
-                    algorithm, filepath, query, num_runs, reread_on_query
-                )
+                if num_concurrent > 1:
+                    result = run_concurrency_test(
+                        algorithm,
+                        filepath,
+                        query,
+                        num_runs,
+                        num_concurrent,
+                        reread_on_query,
+                    )
+                else:
+                    result = run_speed_test(
+                        algorithm, filepath, query, num_runs, reread_on_query
+                    )
                 data.append(result)
     return data
 
@@ -94,8 +140,14 @@ def save_test_data(data: List[Dict], output_path: str):
 if __name__ == "__main__":
     # Example usage
     file_sizes = [10000, 100000, 250000, 500000, 750000, 1000000]
-    queries = ["test string 5000", "non existing string"]
+    queries = [
+        "test string 5000",
+        "non existing string",
+        "test string 1000",
+        "test string 1000000",
+    ]
     num_runs = 10
+    num_concurrent = [1, 10, 50, 100, 200]
 
     filepaths = []
     for file_size in file_sizes:
@@ -112,3 +164,8 @@ if __name__ == "__main__":
         filepaths, queries, num_runs, reread_on_query=False
     )
     save_test_data(data_reread_false, "speed_test_data_reread_false.csv")
+
+    concurrency_data = collect_speed_test_data(
+        filepaths, queries, num_runs, reread_on_query=False, num_concurrent=10
+    )
+    save_test_data(concurrency_data, "concurrency_test_data.csv")

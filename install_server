@@ -1,0 +1,40 @@
+#!/bin/bash
+
+# Check if the script is run with sudo
+if [ "$EUID" -ne 0 ]; then
+  echo "Please run this script with sudo privileges."
+  exit 1
+fi
+
+# Set variables
+SERVICE_FILE="algo-server.service"
+PROJECT_DIR=$(pwd)
+SERVICE_DEST="/etc/systemd/system/"
+SERVICE_SRC="$PROJECT_DIR/$SERVICE_FILE"
+
+# Check if the service file exists
+if [ ! -f "$SERVICE_SRC" ]; then
+  echo "Error: Service file not found at $SERVICE_SRC"
+  exit 1
+fi
+
+# Check if the destination exists
+if [ ! -d "$SERVICE_DEST" ]; then
+  echo "Error: Destination directory does not exist: $SERVICE_DEST"
+  exit 1
+fi
+
+echo "Copying service file..."
+cp "$SERVICE_SRC" "$SERVICE_DEST"
+
+echo "Reloading systemd daemon..."
+systemctl daemon-reload
+
+echo "Starting the service..."
+systemctl start "$SERVICE_FILE"
+
+echo "Enabling the service at boot..."
+systemctl enable "$SERVICE_FILE"
+
+echo "Service installed and started successfully."
+echo "You can check status with: sudo systemctl status $SERVICE_FILE"

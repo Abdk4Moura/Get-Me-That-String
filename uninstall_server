@@ -1,0 +1,34 @@
+#!/bin/bash
+
+# Check if the script is run with sudo
+if [ "$EUID" -ne 0 ]; then
+  echo "Please run this script with sudo privileges."
+  exit 1
+fi
+
+# Set variables
+SERVICE_FILE="algo-server.service"
+PROJECT_DIR="$PWD" # Replace with your project's path
+SERVICE_DEST="/etc/systemd/system/"
+SERVICE_SRC="$SERVICE_DEST/$SERVICE_FILE"
+
+# Check if the service file exists
+if [ ! -f "$SERVICE_SRC" ]; then
+  echo "Warning: Service file not found at $SERVICE_SRC. Nothing to remove."
+  exit 0
+fi
+
+# stop and disable the service
+echo "Stopping the service..."
+systemctl stop "$SERVICE_FILE"
+
+echo "Disabling the service..."
+systemctl disable "$SERVICE_FILE"
+
+echo "Removing the service file..."
+rm "$SERVICE_SRC"
+
+echo "Reloading systemd daemon..."
+systemctl daemon-reload
+
+echo "Service uninstalled successfully."

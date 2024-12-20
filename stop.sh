@@ -1,0 +1,1 @@
+pkill -f "./core/server.py"

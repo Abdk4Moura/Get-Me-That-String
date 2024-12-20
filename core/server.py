@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 import socket
 import ssl
 import threading
@@ -119,6 +121,18 @@ class FileSearchServer:
             exit(1)
 
 
+def is_port_in_use(port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        return s.connect_ex(("localhost", port)) == 0
+
+
+def find_available_port(start_port: int, max_ports: int = 10) -> Optional[int]:
+    for port in range(start_port, start_port + max_ports):
+        if not is_port_in_use(port):
+            return port
+    return None  # If all ports are taken
+
+
 if __name__ == "__main__":
     logger = setup_logger(name="ServerLogger")
 
@@ -168,6 +182,15 @@ if __name__ == "__main__":
         # Override server config with command line arguments.
         if args.port:
             server_config.port = args.port
+        else:
+            # Find an available port if not provided
+            available_port = find_available_port(44445)
+            if available_port:
+                server_config.port = available_port
+            else:
+                logger.error("No available ports found.")
+                exit(1)
+
         if args.ssl_enabled is not None:
             server_config.ssl_enabled = args.ssl_enabled
         if args.reread_on_query is not None:

@@ -4,6 +4,7 @@ import pytest
 from core.client import client_query
 from core.config import ClientConfig
 from typing import Optional
+from pathlib import Path
 import time
 
 # Constants for testing
@@ -60,8 +61,9 @@ def server():
         pytest.fail("All test ports are being used, cannot run the tests.")
     create_test_config(CONFIG_FILE, DATA_FILE, port=port, reread_on_query=False)
     create_test_data(DATA_FILE, ["test string 1", "test string 2"])
+    server_py = Path(__file__).parent.parent / "core" / "server.py"
     server_process = subprocess.Popen(
-        ["python", "server.py", "--config", CONFIG_FILE]
+        ["python", str(server_py), "--config", CONFIG_FILE]
     )
     time.sleep(0.1)  # Give the server time to start
     yield server_process, port
@@ -110,13 +112,14 @@ def test_client_default_config(server):
         f.write("server=127.0.0.1\n")
         f.write(f"port={port}\n")
     # Call the client without --client_config and ensure it works using default values, except for the query.
+    client_py = Path(__file__).parent.parent / "core" / "client.py"
     process = subprocess.run(
-        ["python", "client.py", "--query", "test query default"],
+        ["python", str(client_py), "--query", "test string 1"],
         capture_output=True,
         text=True,
     )
     assert "Using default client configuration" in process.stderr
-    assert "Server Response: STRING" in process.stdout
+    assert "Server Response: STRING EXISTS" in process.stdout
 
 
 def test_client_config_query_override(server):
@@ -128,10 +131,11 @@ def test_client_config_query_override(server):
         f.write(f"port={port}\n")
         f.write("query=test query config\n")
     # Ensure that the command line parameters override configuration file values.
+    client_py = Path(__file__).parent.parent / "core" / "client.py"
     process = subprocess.run(
         [
             "python",
-            "client.py",
+            str(client_py),
             "--client_config",
             "test_client_config.ini",
             "--query",
@@ -151,10 +155,11 @@ def test_client_missing_server_and_port(server):
     with open("test_client_config.ini", "w") as f:
         f.write("[Client]\n")
         f.write("query=test query config\n")
+    client_py = Path(__file__).parent.parent / "core" / "client.py"
     process = subprocess.run(
         [
             "python",
-            "client.py",
+            str(client_py),
             "--client_config",
             "test_client_config.ini",
             "--query",

@@ -65,7 +65,7 @@ def server():
     server_process = subprocess.Popen(
         ["python", str(server_py), "--config", CONFIG_FILE]
     )
-    time.sleep(0.1)  # Give the server time to start
+    time.sleep(1)  # Give the server more time to start
     yield server_process, port
     server_process.terminate()
 

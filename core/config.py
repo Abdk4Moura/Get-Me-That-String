@@ -61,7 +61,8 @@ def load_extra_server_config(
     """Loads server configuration from the specified file."""
     config = configparser.ConfigParser()
     try:
-        config.read(config_path)
+        if not config.read(config_path):
+            raise FileNotFoundError(f"File {config_path} not found.")
     except Exception as e:
         logger.error(f"Error reading server config file: {e}")
         return None
@@ -93,7 +94,8 @@ def load_client_config(
     """Loads client configuration from the specified file."""
     config = configparser.ConfigParser()
     try:
-        config.read(config_path)
+        if not config.read(config_path):
+            raise FileNotFoundError(f"File {config_path} not found.")
     except Exception as e:
         logger.error(f"Error reading client config file: {e}")
         return None

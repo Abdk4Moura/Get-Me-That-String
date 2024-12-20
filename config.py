@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 import logging
+from typing import Optional
 
 
 # ANSI escape codes for colorizing log messages
@@ -15,15 +16,15 @@ class bcolors:
     UNDERLINE = "\033[4m"
 
 
-def setup_logger() -> logging.Logger:
+def setup_logger(name: str = "AppLogger") -> logging.Logger:
     """Set up and return a configured logger."""
-    logger = logging.getLogger("ServerLogger")
+    logger = logging.getLogger(name)
     logger.setLevel(logging.DEBUG)
 
     # Create a formatter that includes color codes
     formatter = logging.Formatter(
-        f"{bcolors.OKBLUE}%(asctime)s{bcolors.ENDC} - \
-            {bcolors.WARNING}%(levelname)s{bcolors.ENDC} - %(message)s",
+        f"{bcolors.OKBLUE}%(asctime)s{bcolors.ENDC}\
+              - {bcolors.WARNING}%(levelname)s{bcolors.ENDC} - %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
@@ -31,7 +32,7 @@ def setup_logger() -> logging.Logger:
     ch.setLevel(logging.DEBUG)
     ch.setFormatter(formatter)
 
-    fh = logging.FileHandler("server.log")
+    fh = logging.FileHandler(f"{name}.log")
     fh.setLevel(logging.DEBUG)
     fh.setFormatter(formatter)
 
@@ -50,3 +51,15 @@ class ServerConfig:
     linux_path: str = ""
     certfile: str = "server.crt"
     keyfile: str = "server.key"
+
+
+@dataclass
+class ClientConfig:
+    """Configuration for the Client."""
+
+    server: str
+    port: int
+    query: str
+    ssl_enabled: bool = False
+    cert_file: Optional[str] = None
+    key_file: Optional[str] = None

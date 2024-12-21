@@ -1,8 +1,8 @@
 import configparser
-from typing import Optional, Tuple
-from dataclasses import dataclass
 import logging
 import re
+from dataclasses import dataclass
+from typing import Optional
 
 
 @dataclass
@@ -32,8 +32,9 @@ class ClientConfig:
 def load_server_config(
     config_path: str, logger: logging.Logger
 ) -> Optional[ServerConfig]:
-    """Loads server configuration from the specified file, extracting linuxpath manually."""
-    config = configparser.ConfigParser()
+    """Loads server configuration from the specified file,
+    extracting linuxpath manually.
+    """
     linux_path = None
 
     try:

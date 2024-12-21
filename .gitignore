@@ -3,7 +3,14 @@ experiment/
 .vscode
 .editorconfig
 .pytest_cache
+.coverage
+logs
 
 
-poetry.lock
 .mypy_cache
+test_server_config.ini
+test_client_config.ini
+test_config*
+config*
+*.log
+client_config*

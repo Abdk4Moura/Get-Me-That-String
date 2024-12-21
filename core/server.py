@@ -1,17 +1,18 @@
 #!/usr/bin/env python
 
+import argparse
+import logging
 import socket
 import ssl
 import threading
 import time
-from typing import Optional, Set, Tuple
 from pathlib import Path
-import logging
-import argparse
+from typing import Optional, Set, Tuple
+
 from core.config import (
     ServerConfig,
-    load_server_config,
     load_extra_server_config,
+    load_server_config,
 )
 from core.logger import setup_logger
 
@@ -87,14 +88,15 @@ class FileSearchServer:
 
                 response = (
                     b"STRING EXISTS\n"
-                    if data in lines
+                    if lines is not None and data in lines
                     else b"STRING NOT FOUND\n"
                 )
                 client_socket.sendall(response)
 
                 end_time = time.time()
                 self.logger.debug(
-                    f"DEBUG: Query='{data}', IP={client_address[0]}, Time={end_time - start_time:.5f}s"
+                    f"Query='{data}', IP={client_address[0]}, "
+                    f"Time={end_time - start_time:.5f}s"
                 )
 
             except Exception as e:
@@ -134,8 +136,6 @@ def find_available_port(start_port: int, max_ports: int = 10) -> Optional[int]:
 
 
 if __name__ == "__main__":
-    logger = setup_logger(name="ServerLogger")
-
     parser = argparse.ArgumentParser(
         description="Start the File Search Server."
     )
@@ -158,14 +158,24 @@ if __name__ == "__main__":
     )
     parser.add_argument("--certfile", type=str, help="Path to certificate file")
     parser.add_argument("--keyfile", type=str, help="Path to key file.")
+    parser.add_argument(
+        "--log_level",
+        type=str,
+        choices=["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG", "NOTSET"],
+        default="INFO",
+        help="Set the logging level",
+    )
 
     args = parser.parse_args()
+
+    logger = setup_logger(name="server", level=args.log_level)
 
     try:
         server_config = load_server_config(args.config, logger)
         if not server_config:
             logger.error(
-                "Server config missing in config file, and linuxpath is required."
+                "Server config missing in config file,\
+                      and linuxpath is required."
             )
             exit(1)
 
@@ -205,3 +215,4 @@ if __name__ == "__main__":
         server.start()
     except Exception as e:
         logger.critical(f"Server failed to start: {e}")
+        exit(1)

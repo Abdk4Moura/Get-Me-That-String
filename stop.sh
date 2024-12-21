@@ -7,7 +7,7 @@ if [ -n "$1" ]; then
     DIR_PATH=$1
 fi
 
-if pkill -f "./core/server.py"; then
+if pkill -f "$DIR_PATH/core/server.py"; then
     echo "Server stopped successfully"
 else
     echo "Server was not running"

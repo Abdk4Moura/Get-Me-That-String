@@ -39,7 +39,9 @@ def server():
     """Starts the server and tears it down."""
     create_test_config(CONFIG_FILE, DATA_FILE, reread_on_query=False)
     create_test_data(DATA_FILE, ["test string 1", "test string 2"])
-    server_process = subprocess.Popen(["python", "server.py", "--config", CONFIG_FILE])
+    server_process = subprocess.Popen(
+        ["python", "server.py", "--config", CONFIG_FILE]
+    )
     time.sleep(0.1)  # Give the server time to start
     yield server_process
     server_process.terminate()
@@ -47,7 +49,9 @@ def server():
 
 @pytest.fixture(scope="module")
 def ssl_server():
-    create_test_config(CONFIG_FILE, DATA_FILE, reread_on_query=False, ssl_enabled=True)
+    create_test_config(
+        CONFIG_FILE, DATA_FILE, reread_on_query=False, ssl_enabled=True
+    )
     create_test_data(DATA_FILE, ["test string 1", "test string 2"])
     # Generate dummy certificates
     subprocess.run(
@@ -68,7 +72,9 @@ def ssl_server():
         ]
     )
 
-    server_process = subprocess.Popen(["python", "server.py", "--config", CONFIG_FILE])
+    server_process = subprocess.Popen(
+        ["python", "server.py", "--config", CONFIG_FILE]
+    )
     time.sleep(0.1)  # Give the server time to start
     yield server_process
     server_process.terminate()
@@ -81,7 +87,9 @@ def test_server_string_exists(server):
 
 
 def test_server_string_not_found(server):
-    config = ClientConfig(server="127.0.0.1", port=44445, query="non existing string")
+    config = ClientConfig(
+        server="127.0.0.1", port=44445, query="non existing string"
+    )
     response = client_query(config)
     assert response == "STRING NOT FOUND"
 
@@ -102,7 +110,9 @@ def test_server_empty_string_query(server):
 def test_server_large_file(server):
     lines = [f"test string {i}" for i in range(250000)]
     create_test_data(DATA_FILE, lines)
-    config = ClientConfig(server="127.0.0.1", port=44445, query="test string 200000")
+    config = ClientConfig(
+        server="127.0.0.1", port=44445, query="test string 200000"
+    )
     response = client_query(config)
     assert response == "STRING EXISTS"
 
@@ -110,7 +120,9 @@ def test_server_large_file(server):
 def test_server_reread_on_query_true(server):
     create_test_config(CONFIG_FILE, DATA_FILE, reread_on_query=True)
     create_test_data(DATA_FILE, ["initial string"])
-    config = ClientConfig(server="127.0.0.1", port=44445, query="initial string")
+    config = ClientConfig(
+        server="127.0.0.1", port=44445, query="initial string"
+    )
     response = client_query(config)
     assert response == "STRING EXISTS"
     create_test_data(DATA_FILE, ["changed string"])
@@ -126,7 +138,9 @@ def test_server_payload_size_limit(server):
 
 
 def test_server_strips_null_characters(server):
-    config = ClientConfig(server="127.0.0.1", port=44445, query="test string 1\x00\x00")
+    config = ClientConfig(
+        server="127.0.0.1", port=44445, query="test string 1\x00\x00"
+    )
     response = client_query(config)
     assert response == "STRING EXISTS"
 
@@ -140,7 +154,9 @@ def test_server_unicode_characters(server):
 
 def test_server_special_characters(server):
     create_test_data(DATA_FILE, ["~!@#$%^&*()_+=-`"])
-    config = ClientConfig(server="127.0.0.1", port=44445, query="~!@#$%^&*()_+=-`")
+    config = ClientConfig(
+        server="127.0.0.1", port=44445, query="~!@#$%^&*()_+=-`"
+    )
     response = client_query(config)
     assert response == "STRING EXISTS"
 
@@ -177,7 +193,9 @@ def test_server_concurrent_requests(server):
     responses = []
     threads = []
     for _ in range(100):
-        t = threading.Thread(target=lambda: responses.append(client_query(config)))
+        t = threading.Thread(
+            target=lambda: responses.append(client_query(config))
+        )
         threads.append(t)
         t.start()
     for t in threads:
@@ -187,7 +205,9 @@ def test_server_concurrent_requests(server):
 
 def test_server_performance(server):
     create_test_data(DATA_FILE, [f"test string {i}" for i in range(10000)])
-    config = ClientConfig(server="127.0.0.1", port=44445, query="test string 5000")
+    config = ClientConfig(
+        server="127.0.0.1", port=44445, query="test string 5000"
+    )
 
     start_time = time.time()
     for _ in range(100):
@@ -201,7 +221,9 @@ def test_server_performance(server):
 def test_server_performance_reread_on_query_true(server):
     create_test_config(CONFIG_FILE, DATA_FILE, reread_on_query=True)
     create_test_data(DATA_FILE, [f"test string {i}" for i in range(10000)])
-    config = ClientConfig(server="127.0.0.1", port=44445, query="test string 5000")
+    config = ClientConfig(
+        server="127.0.0.1", port=44445, query="test string 5000"
+    )
 
     start_time = time.time()
     for _ in range(10):

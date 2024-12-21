@@ -3,7 +3,6 @@
 import argparse
 import json
 import logging
-import os
 from typing import Dict
 
 import matplotlib.pyplot as plt
@@ -12,6 +11,7 @@ from fpdf import FPDF
 
 from core.logger import setup_logger
 from core.utils import check_file_exists, generate_test_file
+from speed_test import collect_speed_test_data
 
 
 def create_performance_table(

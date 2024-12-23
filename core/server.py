@@ -1,26 +1,61 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 import argparse
+import importlib
 import logging
 import socket
 import ssl
 import threading
 import time
 from pathlib import Path
-from typing import Optional, Set, Tuple
+from typing import List, Optional, Tuple
 
+from core.algorithms.linear_search import LinearSearch
 from core.config import (
     ServerConfig,
     load_extra_server_config,
     load_server_config,
 )
 from core.logger import setup_logger
+from core.utils import find_available_port, is_port_in_use
+
+
+def load_search_algorithm(algorithm_name: str, logger: logging.Logger):
+    """Loads a search algorithm dynamically."""
+    try:
+        module_name = f"core.algorithms.{algorithm_name.lower()}_search"
+        module = importlib.import_module(module_name)
+        class_name = (
+            "".join(
+                word.capitalize() for word in algorithm_name.lower().split("_")
+            )
+            + "Search"
+        )
+        search_class = getattr(module, class_name)
+        return search_class()
+    except ImportError:
+        logger.error(
+            f"Error importing {algorithm_name}. Using LinearSearch as a default"
+        )
+        return LinearSearch()
+    except AttributeError:
+        logger.error(
+            f"Error importing {algorithm_name}. Using LinearSearch as a default"
+        )
+        return LinearSearch()
+    except Exception as e:
+        logger.error(
+            f"Error importing {algorithm_name}: {e}. Using LinearSearch as a default"
+        )
+        return LinearSearch()
 
 
 class FileSearchServer:
     """A multithreaded server that searches for exact matches in a file."""
 
-    def __init__(self, config: ServerConfig, logger: logging.Logger):
+    def __init__(
+        self, config: ServerConfig, logger: logging.Logger, search_algorithm
+    ):
         self.logger = logger
         self.config = config
         self.port = self.config.port
@@ -32,6 +67,7 @@ class FileSearchServer:
             self._load_file_lines() if not self.reread_on_query else None
         )
         self.server_socket = self._setup_server()
+        self.search_algorithm = search_algorithm
 
     def _setup_ssl(self) -> Optional[ssl.SSLContext]:
         """Set up SSL context if enabled."""
@@ -57,11 +93,11 @@ class FileSearchServer:
             self.logger.error(f"Error setting up server socket: {e}")
             exit(1)
 
-    def _load_file_lines(self) -> Set[str]:
+    def _load_file_lines(self) -> List[str]:
         """Load the file contents into memory."""
         try:
             with self.linux_path.open("r") as f:
-                lines = {line.strip() for line in f}
+                lines = [line.strip() for line in f]
             self.logger.info("File loaded into memory.")
             return lines
         except Exception as e:
@@ -88,15 +124,14 @@ class FileSearchServer:
 
                 response = (
                     b"STRING EXISTS\n"
-                    if lines is not None and data in lines
+                    if self.search_algorithm.search(lines, data)
                     else b"STRING NOT FOUND\n"
                 )
                 client_socket.sendall(response)
 
                 end_time = time.time()
                 self.logger.debug(
-                    f"Query='{data}', IP={client_address[0]}, "
-                    f"Time={end_time - start_time:.5f}s"
+                    f"DEBUG: Query='{data}', IP={client_address[0]}, Time={end_time - start_time:.5f}s"
                 )
 
             except Exception as e:
@@ -123,19 +158,9 @@ class FileSearchServer:
             exit(1)
 
 
-def is_port_in_use(port: int) -> bool:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        return s.connect_ex(("localhost", port)) == 0
-
-
-def find_available_port(start_port: int, max_ports: int = 10) -> Optional[int]:
-    for port in range(start_port, start_port + max_ports):
-        if not is_port_in_use(port):
-            return port
-    return None  # If all ports are taken
-
-
 if __name__ == "__main__":
+    logger = setup_logger(name="ServerLogger")
+
     parser = argparse.ArgumentParser(
         description="Start the File Search Server."
     )
@@ -149,6 +174,9 @@ if __name__ == "__main__":
         required=False,
         help="Path to the server configuration file.",
     )
+    parser.add_argument(
+        "--search_algorithm", required=False, help="Search algorithm to use."
+    )
     parser.add_argument("--port", type=int, help="Port to bind the server to.")
     parser.add_argument("--ssl_enabled", type=bool, help="Enable SSL.")
     parser.add_argument(
@@ -158,24 +186,13 @@ if __name__ == "__main__":
     )
     parser.add_argument("--certfile", type=str, help="Path to certificate file")
     parser.add_argument("--keyfile", type=str, help="Path to key file.")
-    parser.add_argument(
-        "--log_level",
-        type=str,
-        choices=["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG", "NOTSET"],
-        default="INFO",
-        help="Set the logging level",
-    )
-
     args = parser.parse_args()
-
-    logger = setup_logger(name="server", level=args.log_level)
 
     try:
         server_config = load_server_config(args.config, logger)
         if not server_config:
             logger.error(
-                "Server config missing in config file,\
-                      and linuxpath is required."
+                "Server config missing in config file, and linuxpath is required."
             )
             exit(1)
 
@@ -192,14 +209,6 @@ if __name__ == "__main__":
         # Override server config with command line arguments.
         if args.port:
             server_config.port = args.port
-        else:
-            # Find an available port if not provided
-            available_port = find_available_port(44445)
-            if available_port:
-                server_config.port = available_port
-            else:
-                logger.error("No available ports found.")
-                exit(1)
 
         if args.ssl_enabled is not None:
             server_config.ssl_enabled = args.ssl_enabled
@@ -210,9 +219,24 @@ if __name__ == "__main__":
         if args.keyfile:
             server_config.keyfile = args.keyfile
 
+        # Find an available port if none was specified or if port from config is in use
+        if not args.port or is_port_in_use(server_config.port):
+            port = find_available_port(44445)
+            if not port:
+                logger.error("No available ports found.")
+                exit(1)
+            server_config.port = port
+            logger.info(f"Using dynamically assigned port: {port}")
+
+        search_algorithm = (
+            load_search_algorithm(args.search_algorithm, logger)
+            if args.search_algorithm
+            else LinearSearch()
+        )
+        logger.info(f"Using {search_algorithm.__class__.__name__} algorithm.")
+
         logger.info(f"Server configuration: {server_config}")
-        server = FileSearchServer(server_config, logger)
+        server = FileSearchServer(server_config, logger, search_algorithm)
         server.start()
     except Exception as e:
         logger.critical(f"Server failed to start: {e}")
-        exit(1)

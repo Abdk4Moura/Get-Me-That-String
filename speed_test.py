@@ -1,23 +1,24 @@
 #!/usr/bin/env python
 
-import time
-import csv
 import argparse
-from typing import Dict, List
-from pathlib import Path
-import multiprocessing
-from core.algorithms.linear_search import LinearSearch
-from core.algorithms.set_search import SetSearch
-from core.algorithms.mmap_search import MMapSearch
-from core.algorithms.aho_corasick_search import AhoCorasickSearch
-from core.algorithms.rabin_karp_search import RabinKarpSearch
-from core.algorithms.boyer_moore_search import BoyerMooreSearch
-from core.algorithms.regex_search import RegexSearch
-from core.algorithms.multiprocessing_search import MultiprocessingSearch
-from abc import ABC, abstractmethod
+import csv
 import logging
+import multiprocessing
+import sys
+import time
+from abc import ABC, abstractmethod
+from typing import Dict, List
+
+from core.algorithms.aho_corasick_search import AhoCorasickSearch
+from core.algorithms.boyer_moore_search import BoyerMooreSearch
+from core.algorithms.linear_search import LinearSearch
+from core.algorithms.mmap_search import MMapSearch
+from core.algorithms.multiprocessing_search import MultiprocessingSearch
+from core.algorithms.rabin_karp_search import RabinKarpSearch
+from core.algorithms.regex_search import RegexSearch
+from core.algorithms.set_search import SetSearch
 from core.logger import setup_logger
-from core.utils import generate_test_file, check_file_exists
+from core.utils import check_file_exists, generate_test_file
 
 
 class SearchAlgorithm(ABC):
@@ -175,7 +176,9 @@ if __name__ == "__main__":
         log_level = logging.INFO
     elif args.verbose >= 2:
         log_level = logging.DEBUG
-    logger = setup_logger(name="SpeedTestLogger")
+    logger = setup_logger(
+        name="SpeedTestLogger", level="DEBUG"
+    )  # Set it to Debug to ensure that no output is missed.
     logger.setLevel(log_level)
 
     # Example usage
@@ -188,7 +191,7 @@ if __name__ == "__main__":
     ]
     num_runs = 10
     num_concurrent = [1, 10, 50, 100, 200]
-
+    python_executable = sys.executable  # <--- Get Python interpreter path
     filepaths = []
     for file_size in file_sizes:
         filepath = f"test_data_{file_size}.txt"

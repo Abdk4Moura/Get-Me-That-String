@@ -1,46 +1,31 @@
-import pytest
+import socket
+import ssl
 import subprocess
+import sys
 import time
-from typing import List
+from pathlib import Path
+from typing import List, Set
 
-CONFIG_FILE = "test_server_config.ini"
+import pytest
+from src.client import ClientConfig, client_query
+
+from core.utils import create_test_config_for_server, create_test_data
+
+CONFIG_FILE = "test_config.ini"
 DATA_FILE = "test_data.txt"
-
-
-def create_test_config(
-    config_file: str,
-    data_file: str,
-    reread_on_query: bool = False,
-    ssl_enabled: bool = False,
-    cert_file: str = "server.crt",
-    key_file: str = "server.key",
-):
-    """Create a test config file."""
-    with open(config_file, "w") as f:
-        f.write("[Server]\n")
-        f.write(f"port=44445\n")
-        f.write(f"linuxpath={data_file}\n")
-        f.write(f"REREAD_ON_QUERY={str(reread_on_query)}\n")
-        f.write(f"ssl={ssl_enabled}\n")
-        if ssl_enabled:
-            f.write(f"certfile={cert_file}\n")
-            f.write(f"keyfile={key_file}\n")
-
-
-def create_test_data(data_file: str, lines: List[str]):
-    """Create a test data file."""
-    with open(data_file, "w") as f:
-        for line in lines:
-            f.write(line + "\n")
+TEST_SERVER_CONFIG_FILE = "test_server_config.ini"
+TEST_DATA_FILE = "test_data.txt"
 
 
 @pytest.fixture(scope="module")
 def server():
     """Starts the server and tears it down."""
-    create_test_config(CONFIG_FILE, DATA_FILE, reread_on_query=False)
+    create_test_config_for_server(CONFIG_FILE, DATA_FILE, reread_on_query=False)
     create_test_data(DATA_FILE, ["test string 1", "test string 2"])
+    server_py = Path(__file__).parent.parent / "core" / "server.py"
+    python_executable = sys.executable  # <--- Get Python interpreter path
     server_process = subprocess.Popen(
-        ["python", "server.py", "--config", CONFIG_FILE]
+        [python_executable, str(server_py), "--config", CONFIG_FILE]
     )
     time.sleep(0.1)  # Give the server time to start
     yield server_process
@@ -49,10 +34,13 @@ def server():
 
 @pytest.fixture(scope="module")
 def ssl_server():
-    create_test_config(
-        CONFIG_FILE, DATA_FILE, reread_on_query=False, ssl_enabled=True
+    create_test_config_for_server(
+        TEST_SERVER_CONFIG_FILE,
+        TEST_DATA_FILE,
+        reread_on_query=False,
+        ssl_enabled=True,
     )
-    create_test_data(DATA_FILE, ["test string 1", "test string 2"])
+    create_test_data(TEST_DATA_FILE, ["test string 1", "test string 2"])
     # Generate dummy certificates
     subprocess.run(
         [
@@ -71,9 +59,10 @@ def ssl_server():
             "/CN=localhost",
         ]
     )
-
+    server_py = Path(__file__).parent.parent / "core" / "server.py"
+    python_executable = sys.executable  # <--- Get Python interpreter path
     server_process = subprocess.Popen(
-        ["python", "server.py", "--config", CONFIG_FILE]
+        [python_executable, str(server_py), "--config", TEST_SERVER_CONFIG_FILE]
     )
     time.sleep(0.1)  # Give the server time to start
     yield server_process
@@ -118,7 +107,7 @@ def test_server_large_file(server):
 
 
 def test_server_reread_on_query_true(server):
-    create_test_config(CONFIG_FILE, DATA_FILE, reread_on_query=True)
+    create_test_config_for_server(CONFIG_FILE, DATA_FILE, reread_on_query=True)
     create_test_data(DATA_FILE, ["initial string"])
     config = ClientConfig(
         server="127.0.0.1", port=44445, query="initial string"
@@ -168,6 +157,9 @@ def test_server_connection_refused():
 
 
 def test_server_ssl_enabled(ssl_server):
+    create_test_config_for_server(
+        CONFIG_FILE, DATA_FILE, reread_on_query=False, ssl_enabled=True
+    )
     config = ClientConfig(
         server="127.0.0.1",
         port=44445,
@@ -181,6 +173,9 @@ def test_server_ssl_enabled(ssl_server):
 
 
 def test_server_ssl_enabled_no_cert(ssl_server):
+    create_test_config_for_server(
+        CONFIG_FILE, DATA_FILE, reread_on_query=False, ssl_enabled=True
+    )
     config = ClientConfig(
         server="127.0.0.1", port=44445, query="test string 1", ssl_enabled=True
     )
@@ -219,7 +214,7 @@ def test_server_performance(server):
 
 
 def test_server_performance_reread_on_query_true(server):
-    create_test_config(CONFIG_FILE, DATA_FILE, reread_on_query=True)
+    create_test_config_for_server(CONFIG_FILE, DATA_FILE, reread_on_query=True)
     create_test_data(DATA_FILE, [f"test string {i}" for i in range(10000)])
     config = ClientConfig(
         server="127.0.0.1", port=44445, query="test string 5000"
@@ -241,60 +236,171 @@ def test_server_logging(server, caplog):
     assert "IP=" in caplog.text
 
 
-def test_server_invalid_config():
+def test_server_invalid_config(caplog):
+    python_executable = sys.executable  # <--- Get Python interpreter path
     with pytest.raises(SystemExit) as e:
         subprocess.run(
-            ["python", "server.py", "--config", "non_existent_config.ini"],
+            [
+                python_executable,
+                "src/server.py",
+                "--config",
+                "non_existent_config.ini",
+            ],
             check=True,
         )
     assert e.value.code == 1
+    assert "Error reading config file" in caplog.text
 
 
-def test_server_config_missing_linuxpath():
+def test_server_config_missing_linuxpath(caplog):
     with open(CONFIG_FILE, "w") as f:
         f.write("[Server]\n")
         f.write(f"port=44445\n")
+    python_executable = sys.executable  # <--- Get Python interpreter path
     with pytest.raises(SystemExit) as e:
         subprocess.run(
-            ["python", "server.py", "--config", CONFIG_FILE],
+            [python_executable, "src/server.py", "--config", CONFIG_FILE],
             check=True,
         )
     assert e.value.code == 1
+    assert "Config file must have a linuxpath line." in caplog.text
 
 
-def test_server_config_invalid_port():
+def test_server_config_invalid_port(caplog):
     with open(CONFIG_FILE, "w") as f:
+        f.write(f"linuxpath=test_data.txt\n")
         f.write("[Server]\n")
         f.write(f"port=abc\n")
-        f.write(f"linuxpath={DATA_FILE}\n")
+    python_executable = sys.executable  # <--- Get Python interpreter path
     with pytest.raises(SystemExit) as e:
         subprocess.run(
-            ["python", "server.py", "--config", CONFIG_FILE],
+            [
+                python_executable,
+                "src/server.py",
+                "--config",
+                CONFIG_FILE,
+                "--server_config",
+                CONFIG_FILE,
+            ],
             check=True,
         )
     assert e.value.code == 1
+    assert "Error parsing server config" in caplog.text
 
 
-def test_server_config_file_not_found():
+def test_server_config_file_not_found(caplog):
+    python_executable = sys.executable  # <--- Get Python interpreter path
     with pytest.raises(SystemExit) as e:
         subprocess.run(
-            ["python", "server.py", "--config", "bad_config.ini"],
+            [python_executable, "src/server.py", "--config", "bad_config.ini"],
             check=True,
         )
     assert e.value.code == 1
+    assert "Error reading config file" in caplog.text
 
 
-def test_server_config_invalid_ssl():
-    create_test_config(
+def test_server_config_invalid_ssl(caplog):
+    create_test_config_for_server(
         CONFIG_FILE,
         DATA_FILE,
         ssl_enabled=True,
         cert_file="bad.crt",
         key_file="bad.key",
     )
+    python_executable = sys.executable  # <--- Get Python interpreter path
     with pytest.raises(SystemExit) as e:
         subprocess.run(
-            ["python", "server.py", "--config", CONFIG_FILE],
+            [
+                python_executable,
+                "src/server.py",
+                "--config",
+                CONFIG_FILE,
+                "--server_config",
+                CONFIG_FILE,
+            ],
             check=True,
         )
     assert e.value.code == 1
+    assert "Error setting up SSL" in caplog.text
+
+
+def test_server_dynamic_port(caplog):
+    create_test_config_for_server(CONFIG_FILE, DATA_FILE)
+    python_executable = sys.executable  # <--- Get Python interpreter path
+    process = subprocess.run(
+        [python_executable, "src/server.py", "--config", CONFIG_FILE],
+        capture_output=True,
+        text=True,
+    )
+    assert "Using dynamically assigned port" in process.stderr
+
+
+def test_server_dynamic_port_override(caplog):
+    create_test_config_for_server(CONFIG_FILE, DATA_FILE)
+    python_executable = sys.executable  # <--- Get Python interpreter path
+    process = subprocess.run(
+        [
+            python_executable,
+            "src/server.py",
+            "--config",
+            CONFIG_FILE,
+            "--port",
+            "8080",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert "Server listening on port 8080" in process.stderr
+
+
+def test_server_dynamic_search_algorithm(caplog):
+    create_test_config_for_server(CONFIG_FILE, DATA_FILE)
+    create_test_data(DATA_FILE, ["test string 1"])
+    python_executable = sys.executable  # <--- Get Python interpreter path
+    process = subprocess.run(
+        [
+            python_executable,
+            "src/server.py",
+            "--config",
+            CONFIG_FILE,
+            "--search_algorithm",
+            "set",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert "Using SetSearch algorithm." in process.stderr
+
+
+def test_server_dynamic_search_algorithm_default(caplog):
+    create_test_config_for_server(CONFIG_FILE, DATA_FILE)
+    create_test_data(DATA_FILE, ["test string 1"])
+    python_executable = sys.executable  # <--- Get Python interpreter path
+    process = subprocess.run(
+        [python_executable, "src/server.py", "--config", CONFIG_FILE],
+        capture_output=True,
+        text=True,
+    )
+    assert "Using LinearSearch algorithm." in process.stderr
+
+
+def test_server_dynamic_search_algorithm_import_error(caplog):
+    create_test_config_for_server(CONFIG_FILE, DATA_FILE)
+    python_executable = sys.executable  # <--- Get Python interpreter path
+    process = subprocess.run(
+        [
+            python_executable,
+            "src/server.py",
+            "--config",
+            CONFIG_FILE,
+            "--search_algorithm",
+            "invalid_search",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert (
+        "Error importing invalid_search. Using LinearSearch as a default"
+        in process.stderr
+    )
+    assert "Using LinearSearch algorithm." in process.stderr

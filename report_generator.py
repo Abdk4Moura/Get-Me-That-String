@@ -1,8 +1,9 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 import argparse
 import json
 import logging
+import sys
 from typing import Dict
 
 import matplotlib.pyplot as plt
@@ -11,7 +12,7 @@ from fpdf import FPDF
 
 from core.logger import setup_logger
 from core.utils import check_file_exists, generate_test_file
-from speed_test import collect_speed_test_data
+from speed_test import collect_speed_test_data, save_test_data
 
 
 def create_performance_table(
@@ -42,7 +43,8 @@ def create_concurrency_table(
 ):
     """Creates a table to show the effects of concurrency"""
     logger.debug(
-        f"Creating concurrency table for algorithm: {algorithm_name}, and file {file_path}"
+        f"Creating concurrency table for algorithm: \
+            {algorithm_name}, and file {file_path}"
     )
     df_filtered = data[
         (data["algorithm"] == algorithm_name) & (data["filepath"] == file_path)
@@ -59,7 +61,7 @@ def create_performance_graph(
     plt.figure(figsize=(12, 6))
 
     # Filter for reread_on_query=False
-    df_false = data[data["reread_on_query"] == False]
+    df_false = data[~data["reread_on_query"]]
     for algorithm in df_false["algorithm"].unique():
         df_algo = df_false[df_false["algorithm"] == algorithm]
         file_sizes = [
@@ -71,7 +73,7 @@ def create_performance_graph(
         )
 
     # Filter for reread_on_query=True
-    df_true = data[data["reread_on_query"] == True]
+    df_true = data[data["reread_on_query"]]
     for algorithm in df_true["algorithm"].unique():
         df_algo = df_true[df_true["algorithm"] == algorithm]
         file_sizes = [
@@ -90,7 +92,7 @@ def create_performance_graph(
     plt.title("Algorithm Performance vs. File Size")
     plt.legend()
     plt.grid(True)
-    plt.savefig(output_path, format="pdf")
+    plt.savefig(output_path, format="png")
 
 
 def create_pdf_report(
@@ -170,10 +172,10 @@ def create_pdf_report(
         pd.concat(
             [pd.read_csv(data_reread_false), pd.read_csv(data_reread_true)]
         ),
-        "performance_graph.pdf",
+        "performance_graph.png",
         logger,
     )
-    pdf.image("performance_graph.pdf", w=180)
+    pdf.image("performance_graph.png", w=180)
 
     pdf.output(report_path)
 
@@ -223,6 +225,7 @@ def main():
         default=0,
         help="Increase verbosity level (can be used multiple times)",
     )
+
     args = parser.parse_args()
 
     # Set up logging level based on verbosity
@@ -231,9 +234,10 @@ def main():
         log_level = logging.INFO
     elif args.verbose >= 2:
         log_level = logging.DEBUG
-    logger = setup_logger(name="ReportGenerator")
+    logger = setup_logger(name="ReportGenerator", level="DEBUG")
     logger.setLevel(log_level)
     report_path = "speed_report.pdf"
+    python_executable = sys.executable  # <--- Get Python interpreter path
 
     progress = load_progress(logger)
 
@@ -263,6 +267,7 @@ def main():
         ]
         num_runs = 10
         num_concurrent = [1, 10, 50, 100, 200]
+
         filepaths = []
         for file_size in file_sizes:
             filepath = f"test_data_{file_size}.txt"

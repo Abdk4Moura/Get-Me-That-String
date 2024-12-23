@@ -1,4 +1,5 @@
 import logging
+import inspect
 
 
 # ANSI escape codes for colorizing log messages
@@ -14,6 +15,40 @@ class bcolors:
     UNDERLINE = "\033[4m"
 
 
+class CustomFormatter(logging.Formatter):
+    """A custom formatter that includes file name, line number, and color."""
+
+    def format(self, record):
+        if record.levelno >= logging.ERROR:
+            frame = inspect.currentframe()
+            # Find the first frame that's not in the logging module or our logger
+            while frame and (
+                "logging" in frame.f_code.co_filename
+                or "core/logger.py" in frame.f_code.co_filename
+            ):
+                frame = frame.f_back
+
+            if frame:
+                filename = frame.f_code.co_filename
+                lineno = frame.f_lineno
+            else:
+                filename = "Unknown"
+                lineno = "Unknown"
+
+            log_message = f"{bcolors.OKBLUE}%(asctime)s{bcolors.ENDC} - {bcolors.FAIL}%(levelname)s{bcolors.ENDC} - "
+            log_message += f"({filename}:{lineno}) - %(message)s"
+            formatter = logging.Formatter(
+                log_message, datefmt="%Y-%m-%d %H:%M:%S"
+            )
+            return formatter.format(record)
+        else:
+            log_message = f"{bcolors.OKBLUE}%(asctime)s{bcolors.ENDC} - {bcolors.WARNING}%(levelname)s{bcolors.ENDC} - %(message)s"
+            formatter = logging.Formatter(
+                log_message, datefmt="%Y-%m-%d %H:%M:%S"
+            )
+            return formatter.format(record)
+
+
 def setup_logger(
     name: str = "AppLogger", level: str = "INFO"
 ) -> logging.Logger:
@@ -21,12 +56,7 @@ def setup_logger(
     logger = logging.getLogger(name)
     logger.setLevel(getattr(logging, level.upper(), logging.INFO))
 
-    # Create a formatter that includes color codes
-    formatter = logging.Formatter(
-        f"{bcolors.OKBLUE}%(asctime)s{bcolors.ENDC}\
-              - {bcolors.WARNING}%(levelname)s{bcolors.ENDC} - %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
+    formatter = CustomFormatter()
 
     ch = logging.StreamHandler()
     ch.setLevel(getattr(logging, level.upper(), logging.INFO))

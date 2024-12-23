@@ -1,8 +1,9 @@
 #!/usr/bin/env python
 
+import argparse
 import socket
 import ssl
-import argparse
+
 from core.config import ClientConfig, load_client_config
 from core.logger import setup_logger
 
@@ -78,14 +79,22 @@ def main():
     if args.key_file:
         client_config.key_file = args.key_file
 
-    if not client_config.server or not client_config.port:
-        logger.error(
-            "Please provide the server address and port in the config file or use defaults."
-        )
-        exit(1)
+    if any(
+        [
+            args.server,
+            args.port,
+            args.ssl_enabled,
+            args.cert_file,
+            args.key_file,
+        ]
+    ):
+        logger.info(f"Final Client Configuration: {client_config}")
 
     response = client_query(client_config)
     logger.info(f"Server Response: {response}")
+
+    if "Error" in response:
+        exit(1)
 
 
 if __name__ == "__main__":

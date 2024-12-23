@@ -35,12 +35,11 @@ def load_server_config(
     config_path: str, logger: logging.Logger
 ) -> Optional[ServerConfig]:
     """Loads server configuration from the specified file, extracting linuxpath manually."""
-    config = configparser.ConfigParser()
     linux_path = None
 
     if not check_file_exists(config_path):
         logger.error(
-            f"Error reading server config file: {config_path} - File not found."
+            f"Error reading config file: {config_path} - File not found."
         )
         return None
 
@@ -54,7 +53,6 @@ def load_server_config(
     if not linux_path:
         logger.error("Config file must have a linuxpath line.")
         return None
-    config.read(config_path)
     server_config = ServerConfig(linux_path=linux_path)
     return server_config
 

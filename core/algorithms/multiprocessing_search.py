@@ -1,21 +1,19 @@
 import multiprocessing
-from typing import List, Set, Tuple
 from abc import ABC, abstractmethod
+from typing import List, Tuple
 
 
 class SearchAlgorithm(ABC):
     @abstractmethod
-    def search(self, filename: str, query: str) -> bool:
+    def search(self, lines: List[str], query: str) -> bool:
         pass
 
 
 class MultiprocessingSearch(SearchAlgorithm):
     """Searches a file using multiprocessing."""
 
-    def search(self, filename: str, query: str) -> bool:
+    def search(self, lines: List[str], query: str) -> bool:
         try:
-            with open(filename, "r") as f:
-                lines = [line.strip() for line in f]
             with multiprocessing.Pool() as pool:
                 results = pool.map(
                     self._search_line, [(line, query) for line in lines]

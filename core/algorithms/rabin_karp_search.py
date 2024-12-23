@@ -1,21 +1,21 @@
 from abc import ABC, abstractmethod
+from typing import List
 
 
 class SearchAlgorithm(ABC):
     @abstractmethod
-    def search(self, filename: str, query: str) -> bool:
+    def search(self, lines: List[str], query: str) -> bool:
         pass
 
 
 class RabinKarpSearch(SearchAlgorithm):
     """Searches a file using the Rabin-Karp algorithm."""
 
-    def search(self, filename: str, query: str) -> bool:
+    def search(self, lines: List[str], query: str) -> bool:
         try:
-            with open(filename, "r") as f:
-                for line in f:
-                    if self.rabin_karp(line.strip(), query):
-                        return True
+            for line in lines:
+                if self.rabin_karp(line, query):
+                    return True
             return False
         except Exception as e:
             print(f"Error reading file: {e}")

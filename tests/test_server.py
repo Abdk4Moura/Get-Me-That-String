@@ -1,14 +1,12 @@
-import socket
-import ssl
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
-from typing import List, Set
 
 import pytest
-from src.client import ClientConfig, client_query
 
+from core.client import ClientConfig, client_query
 from core.utils import create_test_config_for_server, create_test_data
 
 CONFIG_FILE = "test_config.ini"

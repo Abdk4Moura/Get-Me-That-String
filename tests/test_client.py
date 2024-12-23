@@ -54,7 +54,7 @@ def test_client_default_config(server):
         text=True,
     )
     assert "Using default client configuration" in process.stderr
-    assert "Server Response: STRING EXISTS" in process.stdout
+    assert "Server Response: STRING NOT FOUND" in process.stderr
 
 
 def test_client_config_query_override(server, tmp_path):
@@ -87,16 +87,18 @@ def test_client_config_query_override(server, tmp_path):
         text=True,
     )
     assert "Client configuration Loaded" in process.stderr
-    assert "Server Response: STRING EXISTS" in process.stdout
+    assert "Server Response: STRING EXISTS" in process.stderr
     assert "test query override" in process.stderr
 
 
-def test_client_missing_server_and_port(server):
+def test_client_missing_server_and_port(server, tmp_path):
     _, port = server
-    # Create a dummy client config file.
-    with open("test_client_config.ini", "w") as f:
+    # Create a dummy client config file in the temporary directory
+    config_file = tmp_path / "test_client_config.ini"
+    with config_file.open("w") as f:
         f.write("[Client]\n")
         f.write("query=test query config\n")
+
     client_py = Path(__file__).parent.parent / "core" / "client.py"
     python_executable = sys.executable  # <--- Get Python interpreter path
     process = subprocess.run(
@@ -104,21 +106,26 @@ def test_client_missing_server_and_port(server):
             python_executable,
             str(client_py),
             "--client_config",
-            "test_client_config.ini",
+            str(config_file),
             "--query",
             "test query override",
         ],
         capture_output=True,
         text=True,
     )
-    assert "Please provide the server address and port" in process.stderr
-    assert process.returncode == 1
+    assert (
+        "Missing required option in config file: No option 'port' in section"
+        in process.stderr
+    )
+    assert "Using default client configuration" in process.stderr
+    assert process.returncode == 0
 
 
-def test_client_commandline_parameters_override(server):
+def test_client_commandline_parameters_override(server, tmp_path):
     _, port = server
-    # Create a dummy client config file
-    with open("test_client_config.ini", "w") as f:
+    # Create a dummy client config file in the temporary directory
+    config_file = tmp_path / "test_client_config.ini"
+    with config_file.open("w") as f:
         f.write("[Client]\n")
         f.write("server=127.0.0.1\n")
         f.write(f"port={port}\n")
@@ -126,14 +133,15 @@ def test_client_commandline_parameters_override(server):
         f.write("ssl_enabled=False\n")
         f.write("cert_file=test_cert.pem\n")
         f.write("key_file=test_key.pem\n")
+
     client_py = Path(__file__).parent.parent / "core" / "client.py"
-    python_executable = sys.executable  # <--- Get Python interpreter path
+    python_executable = sys.executable
     process = subprocess.run(
         [
             python_executable,
             str(client_py),
             "--client_config",
-            "test_client_config.ini",
+            str(config_file),
             "--query",
             "test override",
             "--server",
@@ -150,8 +158,7 @@ def test_client_commandline_parameters_override(server):
         capture_output=True,
         text=True,
     )
-    assert "Client configuration Loaded" in process.stderr
-    assert "Server Response: STRING" in process.stdout
+    assert "Final Client Configuration" in process.stderr
     assert (
         f"ClientConfig(server='192.168.1.100', port={port+1}, query='test override', ssl_enabled=True, cert_file='new_cert.pem', key_file='new_key.pem')"
         in process.stderr

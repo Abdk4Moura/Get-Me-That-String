@@ -79,14 +79,17 @@ def main():
     if args.key_file:
         client_config.key_file = args.key_file
 
-    if any(
-        [
-            args.server,
-            args.port,
-            args.ssl_enabled,
-            args.cert_file,
-            args.key_file,
-        ]
+    if (
+        any(
+            [
+                args.server,
+                args.port,
+                args.ssl_enabled,
+                args.cert_file,
+                args.key_file,
+            ]
+        )
+        and args.client_config
     ):
         logger.info(f"Final Client Configuration: {client_config}")
 

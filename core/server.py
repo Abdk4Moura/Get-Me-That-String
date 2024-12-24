@@ -11,11 +11,8 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 
 from core.algorithms.linear_search import LinearSearch
-from core.config import (
-    ServerConfig,
-    load_extra_server_config,
-    load_server_config,
-)
+from core.config import (ServerConfig, load_extra_server_config,
+                         load_server_config)
 from core.logger import setup_logger
 from core.utils import find_available_port, is_port_in_use
 

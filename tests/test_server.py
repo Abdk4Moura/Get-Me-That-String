@@ -2,120 +2,68 @@ import subprocess
 import sys
 import threading
 import time
-from pathlib import Path
 
 import pytest
 
 from core.client import ClientConfig, client_query
-from core.utils import create_test_config_for_server, create_test_data
+from tests.utils import create_test_config_for_server, create_test_data
 
-CONFIG_FILE = "test_config.ini"
-DATA_FILE = "test_data.txt"
-TEST_SERVER_CONFIG_FILE = "test_server_config.ini"
-TEST_DATA_FILE = "test_data.txt"
-
-
-@pytest.fixture(scope="module")
-def server():
-    """Starts the server and tears it down."""
-    create_test_config_for_server(CONFIG_FILE, DATA_FILE, reread_on_query=False)
-    create_test_data(DATA_FILE, ["test string 1", "test string 2"])
-    server_py = Path(__file__).parent.parent / "core" / "server.py"
-    python_executable = sys.executable  # <--- Get Python interpreter path
-    server_process = subprocess.Popen(
-        [python_executable, str(server_py), "--config", CONFIG_FILE]
-    )
-    time.sleep(0.1)  # Give the server time to start
-    yield server_process
-    server_process.terminate()
-
-
-@pytest.fixture(scope="module")
-def ssl_server():
-    create_test_config_for_server(
-        TEST_SERVER_CONFIG_FILE,
-        TEST_DATA_FILE,
-        reread_on_query=False,
-        ssl_enabled=True,
-    )
-    create_test_data(TEST_DATA_FILE, ["test string 1", "test string 2"])
-    # Generate dummy certificates
-    subprocess.run(
-        [
-            "openssl",
-            "req",
-            "-x509",
-            "-newkey",
-            "rsa:2048",
-            "-keyout",
-            "server.key",
-            "-out",
-            "server.crt",
-            "-days",
-            "365",
-            "-subj",
-            "/CN=localhost",
-        ]
-    )
-    server_py = Path(__file__).parent.parent / "core" / "server.py"
-    python_executable = sys.executable  # <--- Get Python interpreter path
-    server_process = subprocess.Popen(
-        [python_executable, str(server_py), "--config", TEST_SERVER_CONFIG_FILE]
-    )
-    time.sleep(0.1)  # Give the server time to start
-    yield server_process
-    server_process.terminate()
 
 
 def test_server_string_exists(server):
-    config = ClientConfig(server="127.0.0.1", port=44445, query="test string 1")
+    _, port = server
+    config = ClientConfig(server="127.0.0.1", port=port, query="test string 1")
     response = client_query(config)
     assert response == "STRING EXISTS"
 
 
 def test_server_string_not_found(server):
+    _, port = server
     config = ClientConfig(
-        server="127.0.0.1", port=44445, query="non existing string"
+        server="127.0.0.1", port=port, query="non existing string"
     )
     response = client_query(config)
     assert response == "STRING NOT FOUND"
 
 
 def test_server_string_partial_match(server):
+    _, port = server
     create_test_data(DATA_FILE, ["test string part"])
-    config = ClientConfig(server="127.0.0.1", port=44445, query="test string")
+    config = ClientConfig(server="127.0.0.1", port=port, query="test string")
     response = client_query(config)
     assert response == "STRING NOT FOUND"
 
 
 def test_server_empty_string_query(server):
-    config = ClientConfig(server="127.0.0.1", port=44445, query="")
+    _, port = server
+    config = ClientConfig(server="127.0.0.1", port=port, query="")
     response = client_query(config)
     assert response == "STRING NOT FOUND"
 
 
 def test_server_large_file(server):
+    _, port = server
     lines = [f"test string {i}" for i in range(250000)]
     create_test_data(DATA_FILE, lines)
     config = ClientConfig(
-        server="127.0.0.1", port=44445, query="test string 200000"
+        server="127.0.0.1", port=port, query="test string 200000"
     )
     response = client_query(config)
     assert response == "STRING EXISTS"
 
 
 def test_server_reread_on_query_true(server):
+    _, port = server
     create_test_config_for_server(CONFIG_FILE, DATA_FILE, reread_on_query=True)
     create_test_data(DATA_FILE, ["initial string"])
     config = ClientConfig(
-        server="127.0.0.1", port=44445, query="initial string"
+        server="127.0.0.1", port=port, query="initial string"
     )
     response = client_query(config)
     assert response == "STRING EXISTS"
     create_test_data(DATA_FILE, ["changed string"])
     response = client_query(config)
     assert response == "STRING NOT FOUND"
-
 
 def test_server_payload_size_limit(server):
     long_string = "A" * 2048

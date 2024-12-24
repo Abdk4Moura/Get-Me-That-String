@@ -37,7 +37,7 @@ def server(config_file, data_file):
     if not port:
         pytest.fail("All test ports are being used, cannot run the tests.")
     create_test_config_for_server(
-        config_file, data_file, port=port, reread_on_query=False
+        config_file, data_file, port=port, reread_on_query=True
     )
     create_test_data(
         data_file, ["test string 1", "test string 2", "test query override"]
@@ -45,7 +45,14 @@ def server(config_file, data_file):
     server_py = Path(__file__).parent / "core" / "server.py"
     python_executable = sys.executable  # <--- Get Python interpreter path
     server_process = subprocess.Popen(
-        [python_executable, str(server_py), "--config", config_file]
+        [
+            python_executable,
+            str(server_py),
+            "--config",
+            config_file,
+            "--server_config",
+            config_file,
+        ]
     )
     time.sleep(1)  # Give the server more time to start
     yield server_process, port
@@ -54,11 +61,14 @@ def server(config_file, data_file):
 
 @pytest.fixture(scope="module")
 def ssl_server(test_server_config_file, test_data_file):
+    """Starts the server with SSL and tears it down."""
+    port = find_available_port(44445)
     create_test_config_for_server(
         test_server_config_file,
         test_data_file,
         reread_on_query=False,
         ssl_enabled=True,
+        port=port,
     )
     create_test_data(test_data_file, ["test string 1", "test string 2"])
     # Generate dummy certificates
@@ -83,7 +93,14 @@ def ssl_server(test_server_config_file, test_data_file):
     server_py = Path(__file__).parent.parent / "core" / "server.py"
     python_executable = sys.executable  # <--- Get Python interpreter path
     server_process = subprocess.Popen(
-        [python_executable, str(server_py), "--config", test_server_config_file]
+        [
+            python_executable,
+            str(server_py),
+            "--config",
+            test_server_config_file,
+            "--server_config",
+            test_server_config_file,
+        ]
     )
     time.sleep(0.1)  # Give the server time to start
     yield server_process

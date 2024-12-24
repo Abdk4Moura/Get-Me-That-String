@@ -10,14 +10,19 @@ import time
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from core.algorithms.linear_search import LinearSearch
-from core.config import (ServerConfig, load_extra_server_config,
-                         load_server_config)
+from core.algorithms.linear_search import LinearSearch, SearchAlgorithm
+from core.config import (
+    ServerConfig,
+    load_extra_server_config,
+    load_server_config,
+)
 from core.logger import setup_logger
 from core.utils import find_available_port, is_port_in_use
 
 
-def load_search_algorithm(algorithm_name: str, logger: logging.Logger):
+def load_search_algorithm(
+    algorithm_name: str, logger: logging.Logger
+) -> SearchAlgorithm:
     """Loads a search algorithm dynamically."""
     try:
         module_name = f"core.algorithms.{algorithm_name.lower()}_search"
@@ -29,6 +34,7 @@ def load_search_algorithm(algorithm_name: str, logger: logging.Logger):
             + "Search"
         )
         search_class = getattr(module, class_name)
+        logger.info(f"Using {search_class.__name__} algorithm.")
         return search_class()
     except ImportError:
         logger.error(
@@ -51,7 +57,10 @@ class FileSearchServer:
     """A multithreaded server that searches for exact matches in a file."""
 
     def __init__(
-        self, config: ServerConfig, logger: logging.Logger, search_algorithm
+        self,
+        config: ServerConfig,
+        logger: logging.Logger,
+        search_algorithm: SearchAlgorithm,
     ):
         self.logger = logger
         self.config = config
@@ -108,7 +117,10 @@ class FileSearchServer:
         with client_socket:
             start_time = time.time()
             try:
-                data = client_socket.recv(1024).decode("utf-8").strip("\x00")
+                client_socket.settimeout(20.0)  # Set 20 second timeout
+                data: str = (
+                    client_socket.recv(1024).decode("utf-8").strip("\x00")
+                )
                 if not data:
                     client_socket.sendall(b"STRING NOT FOUND\n")
                     return
@@ -131,10 +143,25 @@ class FileSearchServer:
                     f"DEBUG: Query='{data}', IP={client_address[0]}, Time={end_time - start_time:.5f}s"
                 )
 
+            except socket.timeout:
+                self.logger.error(
+                    f"Connection timeout for client {client_address}"
+                )
+                try:
+                    # String not found, because it's either empty
+                    # or the client took too long to respond.
+                    client_socket.sendall(b"STRING NOT FOUND\n")
+                except:
+                    pass
+
             except Exception as e:
                 self.logger.error(
                     f"Error handling client {client_address}: {e}"
                 )
+                try:
+                    client_socket.sendall(b"Error: Unexpected error occured\n")
+                except:
+                    pass
 
     def start(self) -> None:
         """Start the server and accept connections."""
@@ -183,6 +210,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("--certfile", type=str, help="Path to certificate file")
     parser.add_argument("--keyfile", type=str, help="Path to key file.")
+
     args = parser.parse_args()
 
     try:
@@ -193,15 +221,13 @@ if __name__ == "__main__":
             )
             exit(1)
 
-        if args.server_config:
-            extra_server_config = load_extra_server_config(
-                args.server_config, logger
-            )
-            if extra_server_config:
-                server_config = extra_server_config
-                logger.info(
-                    f"Extra Server configuration loaded: {server_config}"
-                )
+        extra_server_config = load_extra_server_config(
+            args.server_config, logger
+        )
+        if extra_server_config:
+            extra_server_config.linux_path = server_config.linux_path
+            server_config = extra_server_config
+            logger.info(f"Extra Server configuration loaded: {server_config}")
 
         # Override server config with command line arguments.
         if args.port:
@@ -230,7 +256,6 @@ if __name__ == "__main__":
             if args.search_algorithm
             else LinearSearch()
         )
-        logger.info(f"Using {search_algorithm.__class__.__name__} algorithm.")
 
         logger.info(f"Server configuration: {server_config}")
         server = FileSearchServer(server_config, logger, search_algorithm)

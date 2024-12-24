@@ -94,10 +94,10 @@ def main():
         logger.info(f"Final Client Configuration: {client_config}")
 
     response = client_query(client_config)
-    logger.info(f"Server Response: {response}")
+    if response.startswith("Error:"):
+        raise Exception(response)
 
-    if "Error" in response:
-        exit(1)
+    logger.info(f"Server Response: {response}")
 
 
 if __name__ == "__main__":

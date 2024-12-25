@@ -23,8 +23,16 @@ def is_port_in_use(port: int) -> bool:
         return s.connect_ex(("localhost", port)) == 0
 
 
-def find_available_port(start_port: int, max_ports: int = 10) -> Optional[int]:
-    for port in range(start_port, start_port + max_ports):
-        if not is_port_in_use(port):
-            return port
-    return None  # If all ports are taken
+def find_available_port(start_port: int, max_ports: int = 100) -> Optional[int]:
+    """Find an available port. Returns None if all ports are taken."""
+    # Use a set to keep track of already tried ports for more efficient lookups.
+    tried_ports = set()
+    for _ in range(max_ports):
+        port = random.randint(
+            start_port, start_port + 1000
+        )  # Try ports within a limited range.
+        if port not in tried_ports:
+            if not is_port_in_use(port):
+                return port
+            tried_ports.add(port)
+    return None  # If all ports are taken.

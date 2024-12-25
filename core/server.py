@@ -11,11 +11,8 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 
 from core.algorithms.linear_search import LinearSearch, SearchAlgorithm
-from core.config import (
-    ServerConfig,
-    load_extra_server_config,
-    load_server_config,
-)
+from core.config import (ServerConfig, load_extra_server_config,
+                         load_server_config)
 from core.logger import setup_logger
 from core.utils import find_available_port, is_port_in_use
 
@@ -117,7 +114,7 @@ class FileSearchServer:
         with client_socket:
             start_time = time.time()
             try:
-                client_socket.settimeout(20.0)  # Set 20 second timeout
+                client_socket.settimeout(5.0)  # Set 5 second timeout
                 data: str = (
                     client_socket.recv(1024).decode("utf-8").strip("\x00")
                 )
@@ -151,7 +148,7 @@ class FileSearchServer:
                     # String not found, because it's either empty
                     # or the client took too long to respond.
                     client_socket.sendall(b"STRING NOT FOUND\n")
-                except:
+                except Exception:
                     pass
 
             except Exception as e:
@@ -243,7 +240,7 @@ if __name__ == "__main__":
             server_config.keyfile = args.keyfile
 
         # Find an available port if none was specified or if port from config is in use
-        if not args.port or is_port_in_use(server_config.port):
+        if not (args.port or server_config.port):
             port = find_available_port(44445)
             if not port:
                 logger.error("No available ports found.")

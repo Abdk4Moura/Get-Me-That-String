@@ -218,9 +218,11 @@ if __name__ == "__main__":
             )
             exit(1)
 
-        extra_server_config = load_extra_server_config(
-            args.server_config, logger
-        )
+        extra_server_config = None
+        if args.server_config:
+            extra_server_config = load_extra_server_config(
+                args.server_config, logger
+            )
         if extra_server_config:
             extra_server_config.linux_path = server_config.linux_path
             server_config = extra_server_config
@@ -240,7 +242,9 @@ if __name__ == "__main__":
             server_config.keyfile = args.keyfile
 
         # Find an available port if none was specified or if port from config is in use
-        if not (args.port or server_config.port):
+        if not (
+            args.port or (extra_server_config and extra_server_config.port)
+        ):
             port = find_available_port(44445)
             if not port:
                 logger.error("No available ports found.")

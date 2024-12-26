@@ -5,14 +5,16 @@ import socket
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 from threading import Event
 from typing import Optional, Tuple, cast
 
 import pytest
 
-from core import logger
 from core.config import load_extra_server_config
+
+SERVER_STARTUP_TIMEOUT = 3500
 
 
 def generate_test_file(filepath: str, num_lines: int, logger: logging.Logger):
@@ -69,6 +71,27 @@ def create_test_config_for_server(
             f.write(f"keyfile={key_file}\n")
 
 
+def create_test_config_for_client(
+    config_file: str,
+    server: str,
+    port: int,
+    query: Optional[str] = None,
+    ssl_enabled: bool = False,
+    cert_file: Optional[str] = None,
+    key_file: Optional[str] = None,
+):
+    """Create a test config file for the client."""
+    with open(config_file, "w") as f:
+        f.write(f"server={server}\n")
+        f.write(f"port={port}\n")
+        if query:
+            f.write(f"query={query}\n")
+        f.write(f"ssl={ssl_enabled}\n")
+        if ssl_enabled and cert_file and key_file:
+            f.write(f"certfile={cert_file}\n")
+            f.write(f"keyfile={key_file}\n")
+
+
 def create_test_data(data_file: str, lines: list[str]):
     """Create a test data file."""
     with open(data_file, "w") as f:
@@ -76,17 +99,27 @@ def create_test_data(data_file: str, lines: list[str]):
             f.write(line + "\n")
 
 
+def wait_for_server_shutdown(
+    server_process: subprocess.Popen, timeout: int
+) -> bool:
+    """Waits for the server to shutdown completely."""
+    start_time = time.time()
+    while time.time() - start_time < timeout:
+        if server_process.poll() is not None:
+            return True
+        time.sleep(0.1)
+    return False
+
+
 def create_test_server_process(
     config_file: str,
-    port: int,
-    reread_on_query: bool,
-    ssl_enabled: bool,
-    cert_file: Optional[str],
-    key_file: Optional[str],
+    port: Optional[int] = None,
+    reread_on_query: bool = False,
+    ssl_enabled: bool = False,
+    ssl_files: Optional[Tuple[str, str]] = None,
     server_config: Optional[str] = None,
 ) -> Tuple[subprocess.Popen[bytes], int, Optional[str], Optional[str]]:
     """Creates and starts the server process for testing"""
-
     python_executable = sys.executable
     server_py = Path(__file__).parent.parent / "core" / "server.py"
     server_args = [
@@ -95,6 +128,8 @@ def create_test_server_process(
         "--config",
         str(config_file),
     ]
+
+    cert_file, key_file = ssl_files if ssl_files else (None, None)
 
     if port:
         server_args.extend(["--port", str(port)])
@@ -119,8 +154,10 @@ def create_test_server_process(
             port = port or c.port
         except Exception:
             pass
-    
-    port = port or find_available_port(44445)
+
+    if port is None:
+        port = cast(int, port or find_available_port(44445))
+        server_args.extend(["--port", str(port)])
 
     server_ready = Event()
     server_process = subprocess.Popen(
@@ -139,12 +176,78 @@ def create_test_server_process(
     t = threading.Thread(target=check_server)
     t.start()
 
-    if not server_ready.wait(
-        35
-    ):  # The hard coded timeout is only done to satisfy tests requirements.
+    if not server_ready.wait(timeout=SERVER_STARTUP_TIMEOUT):
         server_process.terminate()
         pytest.fail("Server failed to start in time.")
 
-    port = cast(int, port)
+    return server_process, port, cert_file, key_file
+
+
+def create_test_client_process(
+    config_file: Optional[str] = None,
+    query: Optional[str] = None,
+    server: Optional[str] = None,
+    port: Optional[int] = None,
+    ssl_enabled: bool = False,
+    cert_file: Optional[str] = None,
+    key_file: Optional[str] = None,
+) -> subprocess.CompletedProcess:
+    """Creates and runs the client process for testing"""
+    client_py = Path(__file__).parent.parent / "core" / "client.py"
+    python_executable = sys.executable
+    client_args = [python_executable, str(client_py)]
+
+    if config_file:
+        client_args.extend(["--client_config", str(config_file)])
+    if query:
+        client_args.extend(["--query", query])
+    if server:
+        client_args.extend(["--server", server])
+    if port:
+        client_args.extend(["--port", str(port)])
+    if ssl_enabled:
+        client_args.extend(["--ssl_enabled", str(ssl_enabled)])
+    if cert_file:
+        client_args.extend(["--cert_file", str(cert_file)])
+    if key_file:
+        client_args.extend(["--key_file", str(key_file)])
+
+    process = subprocess.run(
+        client_args,
+        capture_output=True,
+        text=True,
+    )
+    return process
+
+
+def server_factory(
+    config_file: str,
+    port: Optional[int] = None,
+    reread_on_query: bool = False,
+    ssl_enabled: bool = False,
+    ssl_files: Optional[Tuple[str, str]] = None,
+    server_config: Optional[str] = None,
+    double_config: bool = False,
+):
+    """Create and start the server process for testing.
+    @param config_file: Path to the configuration file.
+    @param port: Port to run the server on.
+    @param reread_on_query: Whether to reread the configuration file on query.
+    @param ssl_enabled: Whether to enable SSL.
+    @param ssl_files: Tuple of SSL certificate and key files.
+    @param server_config: Path to the server configuration file.
+    @param double_config: Whether to use the configuration file for the server.
+    """
+
+    server_process, port, cert_file, key_file = create_test_server_process(
+        config_file,
+        port,
+        reread_on_query,
+        ssl_enabled,
+        ssl_files,
+        server_config=(
+            server_config or config_file if double_config else None
+        ),
+    )
 
     return server_process, port, cert_file, key_file

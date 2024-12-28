@@ -28,20 +28,19 @@ class ClientConfig:
     query: str
     ssl_enabled: bool = False
     cert_file: Optional[str] = None
-    key_file: Optional[str] = None
 
 
 def load_server_config(
     config_path: str, logger: logging.Logger
-) -> Optional[ServerConfig]:
+) -> ServerConfig:
     """Loads server configuration from the specified file, extracting linuxpath manually."""
     linux_path = None
 
     if not check_file_exists(config_path):
-        logger.error(
+        logger.critical(
             f"Error reading config file: {config_path} - File not found."
         )
-        return None
+        raise Exception("Config file not found.")
 
     with open(config_path, "r") as f:
         for line in f:
@@ -51,8 +50,8 @@ def load_server_config(
                 break  # Only grab the first one
 
     if not linux_path:
-        logger.error("Config file must have a linuxpath line.")
-        return None
+        logger.critical("Config file must have a linuxpath line.")
+        raise SystemExit(1)
     server_config = ServerConfig(linux_path=linux_path)
     return server_config
 
@@ -119,7 +118,6 @@ def load_client_config(
                 "Client", "ssl_enabled", fallback=False
             ),
             cert_file=config.get("Client", "cert_file", fallback=None),
-            key_file=config.get("Client", "key_file", fallback=None),
         )
 
     except configparser.NoOptionError as e:
@@ -130,3 +128,12 @@ def load_client_config(
         return None
 
     return client_config
+
+
+__all__ = [
+    "ServerConfig",
+    "ClientConfig",
+    "load_server_config",
+    "load_extra_server_config",
+    "load_client_config",
+]

@@ -14,7 +14,9 @@ def config_file(tmp_path_factory):
     return tmp_path_factory.mktemp("data") / "test_config.ini"
 
 
-@pytest.fixture(scope="module")
+# the scope is as such so that if the file is changed in one test,
+# it doesn't affect the other tests
+@pytest.fixture(scope="function")
 def data_file(tmp_path_factory) -> Path:
     return tmp_path_factory.mktemp("data") / "test_data.txt"
 

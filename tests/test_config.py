@@ -84,7 +84,7 @@ def test_load_client_config_valid(tmp_path, logger):
     config_file.write_text(
         "[Client]\nserver=127.0.0.1\nport=8080\nquery=test\
             \nssl_enabled=True\ncert_file=\
-            test_client.crt\nkey_file=test_client.key\n"
+            test_client.crt\n"
     )
     config = load_client_config(str(config_file), logger)
     assert config is not None
@@ -93,7 +93,6 @@ def test_load_client_config_valid(tmp_path, logger):
     assert config.query == "test"
     assert config.ssl_enabled
     assert config.cert_file == "test_client.crt"
-    assert config.key_file == "test_client.key"
 
 
 def test_load_client_config_missing_section(tmp_path, logger, caplog):
@@ -125,7 +124,7 @@ def test_load_client_config_missing_server(tmp_path, logger):
     config_file.write_text(
         "[Client]\nport=8080\nquery=test\
             \nssl_enabled=True\ncert_file=\
-            test_client.crt\nkey_file=test_client.key\n"
+            test_client.crt\n"
     )
     config = load_client_config(str(config_file), logger)
     assert config is not None
@@ -134,7 +133,6 @@ def test_load_client_config_missing_server(tmp_path, logger):
     assert config.query == "test"
     assert config.ssl_enabled is True
     assert config.cert_file == "test_client.crt"
-    assert config.key_file == "test_client.key"
 
 
 def test_load_client_config_missing_query(tmp_path, logger, caplog):

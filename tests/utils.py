@@ -8,13 +8,14 @@ import threading
 import time
 from pathlib import Path
 from threading import Event
+from select import POLLIN, poll, select
 from typing import Optional, Tuple, cast
 
 import pytest
 
 from core.config import load_extra_server_config
 
-SERVER_STARTUP_TIMEOUT = 3500
+SERVER_STARTUP_TIMEOUT = 350
 
 
 def generate_test_file(filepath: str, num_lines: int, logger: logging.Logger):
@@ -118,6 +119,8 @@ def create_test_server_process(
     ssl_enabled: bool = False,
     ssl_files: Optional[Tuple[str, str]] = None,
     server_config: Optional[str] = None,
+    debug: bool = False,
+    stderr: list[str] = [],
 ) -> Tuple[subprocess.Popen[bytes], int, Optional[str], Optional[str]]:
     """Creates and starts the server process for testing"""
     python_executable = sys.executable
@@ -128,6 +131,9 @@ def create_test_server_process(
         "--config",
         str(config_file),
     ]
+
+    if debug:
+        server_args.extend(["-v", "DEBUG"])
 
     cert_file, key_file = ssl_files if ssl_files else (None, None)
 
@@ -160,6 +166,7 @@ def create_test_server_process(
         server_args.extend(["--port", str(port)])
 
     server_ready = Event()
+    server_error = None
     server_process = subprocess.Popen(
         server_args,
         stderr=subprocess.PIPE,
@@ -167,20 +174,37 @@ def create_test_server_process(
 
     def check_server():
         """Checks the output of the server, and sets an event to signal it is online"""
+        nonlocal server_error
+        nonlocal stderr
         for line in server_process.stderr:
             line = line.decode().strip()
+            stderr.append(line)
             if "Server listening on port" in line:
+                server_ready.set()
+                break
+            # Store error message if server exits unexpectedly
+            if server_process.poll() is not None:
+                server_error = line
                 server_ready.set()
                 break
 
     t = threading.Thread(target=check_server)
     t.start()
 
+    # Check if server exited with error
+    if server_process.poll() is not None:
+        error_msg = (
+            server_error
+            or f"Server failed with exit code {server_process.returncode}"
+        )
+        server_process.terminate()
+        raise RuntimeError(error_msg)
+
     if not server_ready.wait(timeout=SERVER_STARTUP_TIMEOUT):
         server_process.terminate()
         pytest.fail("Server failed to start in time.")
 
-    return server_process, port, cert_file, key_file
+    return server_process, port, cert_file
 
 
 def create_test_client_process(
@@ -189,8 +213,7 @@ def create_test_client_process(
     server: Optional[str] = None,
     port: Optional[int] = None,
     ssl_enabled: bool = False,
-    cert_file: Optional[str] = None,
-    key_file: Optional[str] = None,
+    cert_file: Optional[Path | str] = None,
 ) -> subprocess.CompletedProcess:
     """Creates and runs the client process for testing"""
     client_py = Path(__file__).parent.parent / "core" / "client.py"
@@ -209,8 +232,6 @@ def create_test_client_process(
         client_args.extend(["--ssl_enabled", str(ssl_enabled)])
     if cert_file:
         client_args.extend(["--cert_file", str(cert_file)])
-    if key_file:
-        client_args.extend(["--key_file", str(key_file)])
 
     process = subprocess.run(
         client_args,
@@ -228,6 +249,8 @@ def server_factory(
     ssl_files: Optional[Tuple[str, str]] = None,
     server_config: Optional[str] = None,
     double_config: bool = False,
+    debug: bool = False,
+    stderr: list[str] = [],
 ):
     """Create and start the server process for testing.
     @param config_file: Path to the configuration file.
@@ -237,17 +260,55 @@ def server_factory(
     @param ssl_files: Tuple of SSL certificate and key files.
     @param server_config: Path to the server configuration file.
     @param double_config: Whether to use the configuration file for the server.
+    @param debug: Whether to enable debug mode.
     """
 
-    server_process, port, cert_file, key_file = create_test_server_process(
+    server_process, port, cert_file = create_test_server_process(
         config_file,
         port,
         reread_on_query,
         ssl_enabled,
         ssl_files,
-        server_config=(
-            server_config or config_file if double_config else None
-        ),
+        server_config=(server_config or config_file if double_config else None),
+        debug=debug,
+        stderr=stderr,
     )
 
-    return server_process, port, cert_file, key_file
+    return server_process, port, cert_file
+
+
+def check_stderr(server_process):
+    """Check if server_process has values in stderr"""
+    poll_obj = poll()
+    poll_obj.register(server_process.stderr, POLLIN)
+
+    events = poll_obj.poll(0)  # Non-blocking poll
+    if events:
+        # Data available on stderr
+        line = server_process.stderr.readline().decode().strip()
+        return line
+    else:
+        # No data available on stderr
+        return None
+
+
+def read_stderr(server_process, stderr_output):
+    """
+    Reads from the stderr stream of the given server process and appends new lines to the stderr_output list.
+
+    Args:
+        server_process (subprocess.Popen): The server process to read from.
+        stderr_output (list): The list to append new stderr lines to.
+    """
+    while True:
+        rlist, _, _ = select([server_process.stderr], [], [], 0)
+        if server_process.stderr in rlist:
+            line = server_process.stderr.readline()
+            if line:
+                stderr_output.append(line.decode().strip())
+            else:
+                break
+        else:
+            break
+    for _ in range(2):
+        stderr_output.append(server_process.stderr.readline().decode("utf-8"))

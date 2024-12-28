@@ -5,14 +5,18 @@ import importlib
 import logging
 import socket
 import ssl
+import sys
 import threading
 import time
 from pathlib import Path
 from typing import List, Optional, Tuple
 
 from core.algorithms.linear_search import LinearSearch, SearchAlgorithm
-from core.config import (ServerConfig, load_extra_server_config,
-                         load_server_config)
+from core.config import (
+    ServerConfig,
+    load_extra_server_config,
+    load_server_config,
+)
 from core.logger import setup_logger
 from core.utils import find_available_port, is_port_in_use
 
@@ -114,7 +118,7 @@ class FileSearchServer:
         with client_socket:
             start_time = time.time()
             try:
-                client_socket.settimeout(5.0)  # Set 5 second timeout
+                client_socket.settimeout(0.5)  # Set 5 second timeout
                 data: str = (
                     client_socket.recv(1024).decode("utf-8").strip("\x00")
                 )
@@ -180,8 +184,6 @@ class FileSearchServer:
 
 
 if __name__ == "__main__":
-    logger = setup_logger(name="ServerLogger")
-
     parser = argparse.ArgumentParser(
         description="Start the File Search Server."
     )
@@ -208,15 +210,20 @@ if __name__ == "__main__":
     parser.add_argument("--certfile", type=str, help="Path to certificate file")
     parser.add_argument("--keyfile", type=str, help="Path to key file.")
 
+    # verbosity based on the number of -v's, options are DEBUG, INFO, WARNING, ERROR, CRITICAL
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        default="INFO",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+        help="Increase output verbosity",
+    )
+
     args = parser.parse_args()
+    logger = setup_logger(name="server", level=args.verbose)
 
     try:
         server_config = load_server_config(args.config, logger)
-        if not server_config:
-            logger.error(
-                "Server config missing in config file, and linuxpath is required."
-            )
-            exit(1)
 
         extra_server_config = None
         if args.server_config:
@@ -263,3 +270,4 @@ if __name__ == "__main__":
         server.start()
     except Exception as e:
         logger.critical(f"Server failed to start: {e}")
+        exit(1)

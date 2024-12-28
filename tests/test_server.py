@@ -1,4 +1,3 @@
-import subprocess
 import sys
 import threading
 import time
@@ -8,13 +7,15 @@ import pytest
 
 from core.client import ClientConfig, client_query
 from tests.utils import (
+    check_stderr,
     create_test_config_for_server,
     create_test_data,
+    read_stderr,
     server_factory,
 )
 
 
-@pytest.fixture()
+@pytest.fixture(scope="function")
 def config_file(config_file, data_file):
     with open(config_file, "w") as f:
         f.write("[Server]\n")
@@ -26,18 +27,18 @@ def config_file(config_file, data_file):
 
 def test_server_string_exists(config_file, data_file):
     create_test_data(data_file, ["test string 1", "test string 2"])
-    server_process, port, _, _ = server_factory(config_file=config_file)
+    server_process, port, _ = server_factory(config_file=config_file)
     config = ClientConfig(server="127.0.0.1", port=port, query="test string 1")
     response = client_query(config)
     assert "STRING" in response
     server_process.terminate()
 
 
-def test_server_string_not_found(data_file):
+def test_server_string_not_found(config_file, data_file):
     create_test_data(
         data_file, ["test string 1", "test string 2", "test query override"]
     )
-    server_process, port, _, _ = server_factory()
+    server_process, port, _ = server_factory(config_file=config_file)
     config = ClientConfig(
         server="127.0.0.1", port=port, query="non existing string"
     )
@@ -46,28 +47,28 @@ def test_server_string_not_found(data_file):
     server_process.terminate()
 
 
-def test_server_string_partial_match(data_file):
+def test_server_string_partial_match(config_file, data_file):
     create_test_data(data_file, ["test string part"])
-    server_process, port, _, _ = server_factory()
+    server_process, port, _ = server_factory(config_file=config_file)
     config = ClientConfig(server="127.0.0.1", port=port, query="test string")
     response = client_query(config)
     assert response == "STRING NOT FOUND"
     server_process.terminate()
 
 
-def test_server_empty_string_query(data_file):
+def test_server_empty_string_query(config_file, data_file):
     create_test_data(
         data_file, ["test string 1", "test string 2", "test query override"]
     )
-    server_process, port, _, _ = server_factory()
+    server_process, port, _ = server_factory(config_file=config_file)
     config = ClientConfig(server="127.0.0.1", port=port, query="")
     response = client_query(config)
     assert response == "STRING NOT FOUND"
     server_process.terminate()
 
 
-def test_server_large_file(data_file):
-    server_proces, port, _, _ = server_factory()
+def test_server_large_file(config_file, data_file):
+    server_process, port, _ = server_factory(config_file=config_file)
     lines = [f"test string {i}" for i in range(250000)]
     create_test_data(data_file, lines)
     config = ClientConfig(
@@ -79,7 +80,9 @@ def test_server_large_file(data_file):
 
 
 def test_server_reread_on_query_true(config_file, data_file):
-    _, port, _, _ = server_factory(reread_on_query=True)
+    server_process, port, _ = server_factory(
+        config_file=config_file, reread_on_query=True
+    )
     create_test_data(data_file, ["initial string"])
     config = ClientConfig(server="127.0.0.1", port=port, query="initial string")
     response = client_query(config)
@@ -90,8 +93,8 @@ def test_server_reread_on_query_true(config_file, data_file):
     server_process.terminate()
 
 
-def test_server_payload_size_limit(server_factory):
-    server_process, port, _, _ = server_factory()
+def test_server_payload_size_limit(config_file):
+    server_process, port, _ = server_factory(config_file=config_file)
     long_string = "A" * 2048
     config = ClientConfig(server="127.0.0.1", port=port, query=long_string)
     response = client_query(config)
@@ -99,8 +102,8 @@ def test_server_payload_size_limit(server_factory):
     server_process.terminate()
 
 
-def test_server_strips_null_characters(data_file):
-    server_process, port, _, _ = server_factory()
+def test_server_strips_null_characters(config_file, data_file):
+    server_process, port, _ = server_factory(config_file=config_file)
     create_test_data(data_file, ["test string 1"])
     config = ClientConfig(
         server="127.0.0.1", port=port, query="test string 1\x00\x00"
@@ -110,8 +113,8 @@ def test_server_strips_null_characters(data_file):
     server_process.terminate()
 
 
-def test_server_unicode_characters(data_file):
-    server_process, port, _, _ = server_factory()
+def test_server_unicode_characters(config_file, data_file):
+    server_process, port, _ = server_factory(config_file=config_file)
     create_test_data(data_file, ["你好，世界"])
     config = ClientConfig(server="127.0.0.1", port=port, query="你好，世界")
     response = client_query(config)
@@ -119,8 +122,8 @@ def test_server_unicode_characters(data_file):
     server_process.terminate()
 
 
-def test_server_special_characters(data_file):
-    server_process, port, _, _ = server_factory()
+def test_server_special_characters(config_file, data_file):
+    server_process, port, _ = server_factory(config_file=config_file)
     create_test_data(data_file, ["~!@#$%^&*()_+=-`"])
     config = ClientConfig(
         server="127.0.0.1", port=port, query="~!@#$%^&*()_+=-`"
@@ -130,8 +133,8 @@ def test_server_special_characters(data_file):
     server_process.terminate()
 
 
-def test_server_connection_refused():
-    server_process, port, _, _ = server_factory()
+def test_server_connection_refused(config_file):
+    server_process, port, _ = server_factory(config_file=config_file)
     config = ClientConfig(
         server="127.0.0.1", port=port + 1, query="test string"
     )
@@ -141,24 +144,26 @@ def test_server_connection_refused():
 
 
 def test_server_ssl_enabled(ssl_files, config_file, data_file):
-    server_process, port, cert, key = server_factory(
-        config_file, ssl_enabled=True, ssl_files=ssl_files
+    create_test_data(data_file, ["test string 1"])
+    server_process, port, cert = server_factory(
+        config_file=config_file, ssl_enabled=True, ssl_files=ssl_files
     )
     config = ClientConfig(
-        server="127.0.0.1",
+        server="localhost",
         port=port,
         query="test string 1",
         ssl_enabled=True,
         cert_file=cert,
-        key_file=key,
     )
     response = client_query(config)
     assert response == "STRING EXISTS"
     server_process.terminate()
 
 
-def test_server_ssl_enabled_no_cert(server_factory):
-    server_process, port, _, _ = server_factory(ssl_enabled=True)
+def test_server_ssl_enabled_no_cert(config_file):
+    server_process, port, _ = server_factory(
+        config_file=config_file, ssl_enabled=True
+    )
     config = ClientConfig(
         server="127.0.0.1", port=port, query="test string 1", ssl_enabled=True
     )
@@ -167,8 +172,9 @@ def test_server_ssl_enabled_no_cert(server_factory):
     server_process.terminate()
 
 
-def test_server_concurrent_requests(server_factory):
-    server_process, port, _, _ = server_factory()
+def test_server_concurrent_requests(config_file, data_file):
+    create_test_data(data_file, ["test string 1", "test string 2"])
+    server_process, port, _ = server_factory(config_file=config_file)
     config = ClientConfig(server="127.0.0.1", port=port, query="test string 1")
     responses = []
     threads = []
@@ -184,25 +190,33 @@ def test_server_concurrent_requests(server_factory):
     server_process.terminate()
 
 
-def test_server_performance(data_file):
-    server_process, port, _, _ = server_factory()
-    create_test_data(data_file, [f"test string {i}" for i in range(10000)])
+def test_server_performance(config_file, data_file):
+    server_process, port, _ = server_factory(
+        config_file=config_file, reread_on_query=False
+    )
+    create_test_data(data_file, [f"test string {i}" for i in range(250000)])
     config = ClientConfig(
-        server="127.0.0.1", port=port, query="test string 5000"
+        server="127.0.0.1", port=port, query="test string 249000"
     )
 
-    start_time = time.time()
+    total = 0
     for _ in range(100):
+        start_time = time.time()
         response = client_query(config)
+        end_time = time.time()
+        duration = end_time - start_time
+        total += duration
         assert response == "STRING EXISTS"
-    end_time = time.time()
-    duration = end_time - start_time
-    assert duration < 1  # Less than 10ms avg (adjust as needed)
+
+    avg_duration = total / 100
+    assert avg_duration < 5 * 1e-3  # Less than 10ms avg (adjust as needed)
     server_process.terminate()
 
 
 def test_server_performance_reread_on_query_true(config_file, data_file):
-    server_process, port, _, _ = server_factory(reread_on_query=True)
+    server_process, port, _ = server_factory(
+        config_file=config_file, reread_on_query=True
+    )
     create_test_data(data_file, [f"test string {i}" for i in range(10000)])
     config = ClientConfig(
         server="127.0.0.1", port=port, query="test string 5000"
@@ -218,23 +232,36 @@ def test_server_performance_reread_on_query_true(config_file, data_file):
     server_process.terminate()
 
 
-def test_server_logging(caplog):
-    server_process, port, _, _ = server_factory()
+def test_server_logging(config_file, data_file):
+    stderr = []
+    create_test_data(data_file, [f"test string {i}" for i in range(10)])
+    server_process, port, _ = server_factory(
+        config_file=config_file, debug=True, stderr=stderr
+    )
     config = ClientConfig(server="127.0.0.1", port=port, query="test string 1")
     client_query(config)
-    assert "DEBUG: Query='test string 1'" in caplog.text
-    assert "IP=" in caplog.text
+
+    read_stderr(server_process, stderr)
+    stderr_output = "\n".join(stderr)
+
+    assert "DEBUG: Query='test string 1'" in stderr_output
+    assert "IP=" in stderr_output
     server_process.terminate()
 
+    # Check if server exited with error
 
-def test_server_invalid_config(config_file, caplog):
-    server_py = Path(__file__).parent.parent / "core" / "server.py"
-    python_executable = sys.executable  # <--- Get Python interpreter path
+
+def test_server_invalid_config(config_file, caplog, monkeypatch):
+    invalid_config = Path(config_file).with_suffix(".invalid")
+
+    # Mock sys.exit to raise an exception instead of exiting
+    def mock_exit(code):
+        raise SystemExit(code)
+
+    monkeypatch.setattr(sys, "exit", mock_exit)
+
     with pytest.raises(SystemExit) as e:
-        subprocess.run(
-            [python_executable, str(server_py), "--config", str(config_file)],
-            check=True,
-        )
+        server_factory(config_file=invalid_config)
     assert e.value.code == 1
     assert "Error reading config file" in caplog.text
 
@@ -250,15 +277,15 @@ def test_server_config_invalid_port(caplog, config_file, data_file):
     assert "Error parsing server config" in caplog.text
 
 
-def test_server_config_file_not_found(caplog):
+def test_server_config_file_not_found(config_file, caplog):
     with pytest.raises(SystemExit) as e:
-        server_factory(server_config="bad_config.ini")
+        server_factory(config_file=config_file, server_config="bad_config.ini")
     assert e.value.code == 1
     assert "Error reading config file" in caplog.text
 
 
 def test_server_config_invalid_ssl(ssl_files, caplog, config_file, data_file):
-    cert_file, key_file = ssl_files
+    cert_file, key_file = ssl_files  # TODO
     create_test_config_for_server(
         config_file,
         data_file,
@@ -274,50 +301,26 @@ def test_server_config_invalid_ssl(ssl_files, caplog, config_file, data_file):
 
 def test_server_dynamic_port(config_file, data_file, caplog):
     create_test_config_for_server(config_file, data_file)
-    server_process, port, _, _ = server_factory(config_file=config_file)
+    server_process, port, _ = server_factory(config_file=config_file)
     server_process.terminate()
     assert "Using dynamically assigned port" in server_process.stderr
 
 
 def test_server_dynamic_port_override(config_file, data_file, caplog):
     create_test_config_for_server(config_file, data_file)
-    server_py = Path(__file__).parent.parent / "core" / "server.py"
-    python_executable = sys.executable  # <--- Get Python interpreter path
-    process = subprocess.run(
-        [
-            python_executable,
-            str(server_py),
-            "--config",
-            str(config_file),
-            "--port",
-            "8080",
-        ],
-        capture_output=True,
-        text=True,
-    )
-    assert "Server listening on port 8080" in process.stderr
+    server_process, _, _ = server_factory(config_file=config_file, port=8080)
+    assert "Server listening on port 8080" in server_process.stderr
+    server_process.terminate()
 
 
 def test_server_dynamic_search_algorithm(config_file, data_file, caplog):
     create_test_config_for_server(config_file, data_file)
     create_test_data(data_file, ["test string 1"])
-    server_py = Path(__file__).parent.parent / "core" / "server.py"
-    python_executable = sys.executable  # <--- Get Python interpreter path
-    process = subprocess.run(
-        [
-            python_executable,
-            str(server_py),
-            "--config",
-            str(config_file),
-            "--server_config",
-            str(config_file),
-            "--search_algorithm",
-            "set",
-        ],
-        capture_output=True,
-        text=True,
+    server_process, port, _ = server_factory(
+        config_file=config_file, search_algorithm="set"
     )
-    assert "Using SetSearch algorithm" in process.stderr
+    assert "Using SetSearch algorithm" in server_process.stderr
+    server_process.terminate()
 
 
 def test_server_dynamic_search_algorithm_default(
@@ -325,45 +328,22 @@ def test_server_dynamic_search_algorithm_default(
 ):
     create_test_config_for_server(config_file, data_file)
     create_test_data(data_file, ["test string 1"])
-    server_py = Path(__file__).parent.parent / "core" / "server.py"
-    python_executable = sys.executable  # <--- Get Python interpreter path
-    process = subprocess.run(
-        [
-            python_executable,
-            str(server_py),
-            "--config",
-            str(config_file),
-            "--server_config",
-            str(config_file),
-        ],
-        capture_output=True,
-        text=True,
-    )
-    assert "Using LinearSearch algorithm." in process.stderr
+    server_process, _, _ = server_factory(config_file=config_file)
+    assert "Using LinearSearch algorithm." in server_process.stderr
+    server_process.terminate()
 
 
 def test_server_dynamic_search_algorithm_import_error(
     config_file, data_file, caplog
 ):
     create_test_config_for_server(config_file, data_file)
-    server_py = Path(__file__).parent.parent / "core" / "server.py"
-    python_executable = sys.executable  # <--- Get Python interpreter path
-    process = subprocess.run(
-        [
-            python_executable,
-            str(server_py),
-            "--config",
-            str(config_file),
-            "--server_config",
-            str(config_file),
-            "--search_algorithm",
-            "invalid_search",
-        ],
-        capture_output=True,
-        text=True,
+    create_test_data(data_file, ["test string 1"])
+    server_process, port, _ = server_factory(
+        config_file=config_file, search_algorithm="invalid_search"
     )
     assert (
         "Error importing invalid_search. Using LinearSearch as a default"
-        in process.stderr
+        in server_process.stderr
     )
-    assert "Using LinearSearch algorithm." in process.stderr
+    assert "Using LinearSearch algorithm." in server_process.stderr
+    server_process.terminate()

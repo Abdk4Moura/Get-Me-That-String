@@ -1,12 +1,7 @@
 import multiprocessing
-from abc import ABC, abstractmethod
 from typing import List, Tuple
 
-
-class SearchAlgorithm(ABC):
-    @abstractmethod
-    def search(self, lines: List[str], query: str) -> bool:
-        pass
+from core.algorithms.base import SearchAlgorithm
 
 
 class MultiprocessingSearch(SearchAlgorithm):

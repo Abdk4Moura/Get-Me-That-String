@@ -12,7 +12,6 @@ from typing import Dict, List
 from core.algorithms.aho_corasick_search import AhoCorasickSearch
 from core.algorithms.boyer_moore_search import BoyerMooreSearch
 from core.algorithms.linear_search import LinearSearch
-from core.algorithms.mmap_search import MMapSearch
 from core.algorithms.multiprocessing_search import MultiprocessingSearch
 from core.algorithms.rabin_karp_search import RabinKarpSearch
 from core.algorithms.regex_search import RegexSearch
@@ -41,10 +40,16 @@ def run_speed_test(
     )
     times = []
     for _ in range(num_runs):
-        start_time = time.time()
+        start_time = time.perf_counter()
         algorithm.search(filepath, query)
-        end_time = time.time()
-        times.append(end_time - start_time)
+        end_time = time.perf_counter()
+        elapsed_time = end_time - start_time
+        if elapsed_time < 0:
+            logger.warning(
+                f"Negative elapsed time detected: {elapsed_time} for {algorithm.__class__.__name__} on {filepath}"
+            )
+            elapsed_time = 0  # Safeguard against negative times
+        times.append(elapsed_time)
 
     return {
         "algorithm": algorithm.__class__.__name__,
@@ -60,10 +65,16 @@ def run_speed_test(
 
 def _worker(filepath: str, query: str, algorithm: SearchAlgorithm) -> float:
     """Worker function for multiprocessing."""
-    start_time = time.time()
+    start_time = time.perf_counter()
     algorithm.search(filepath, query)
-    end_time = time.time()
-    return end_time - start_time
+    end_time = time.perf_counter()
+    elapsed_time = end_time - start_time
+    if elapsed_time < 0:
+        logging.warning(
+            f"Negative elapsed time detected in worker: {elapsed_time} for {algorithm.__class__.__name__} on {filepath}"
+        )
+        elapsed_time = 0  # Safeguard
+    return elapsed_time
 
 
 def run_concurrency_test(
@@ -79,12 +90,12 @@ def run_concurrency_test(
     logger.debug(
         f"Running concurrency test for algorithm: {algorithm.__class__.__name__}, file: {filepath}, query: {query}, reread: {reread_on_query} concurrent: {num_concurrent}"
     )
-    start_time = time.time()
+    start_time = time.perf_counter()
     with multiprocessing.Pool(processes=num_concurrent) as pool:
         times = pool.starmap(
             _worker, [(filepath, query, algorithm) for _ in range(num_runs)]
         )
-    end_time = time.time()
+    end_time = time.perf_counter()
     total_time = end_time - start_time
     return {
         "algorithm": algorithm.__class__.__name__,
@@ -110,7 +121,6 @@ def collect_speed_test_data(
     algorithms = [
         LinearSearch(),
         SetSearch(),
-        MMapSearch(),
         AhoCorasickSearch(),
         RabinKarpSearch(),
         BoyerMooreSearch(),

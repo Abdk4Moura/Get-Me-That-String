@@ -40,7 +40,7 @@ def load_server_config(
         logger.critical(
             f"Error reading config file: {config_path} - File not found."
         )
-        raise Exception("Config file not found.")
+        exit(1)
 
     with open(config_path, "r") as f:
         for line in f:

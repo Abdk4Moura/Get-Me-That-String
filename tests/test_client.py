@@ -26,7 +26,7 @@ def config_file(tmp_path, data_file):
     return config_file
 
 
-def test_client_query_success(config_file, data_file, default_test_state):
+def test_client_query_success(config_file, default_test_state):
     server_process, port, _ = server_factory(config_file)
     config = ClientConfig(server="127.0.0.1", port=port, query="test string 1")
     response = client_query(config)
@@ -56,8 +56,10 @@ def test_client_query_server_error(config_file, data_file, default_test_state):
     server_process.terminate()
 
 
-def test_client_ssl_no_certificate(config_file):
-    server_process, port, _ = server_factory(config_file, ssl_enabled=True)
+def test_client_ssl_no_certificate(config_file, ssl_files, default_test_state):
+    server_process, port, _ = server_factory(
+        config_file, ssl_enabled=True, ssl_files=ssl_files
+    )
     config = ClientConfig(
         server="127.0.0.1", port=port, query="test string 1", ssl_enabled=True
     )

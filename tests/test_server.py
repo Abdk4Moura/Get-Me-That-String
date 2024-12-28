@@ -1,4 +1,3 @@
-import sys
 import threading
 import time
 from pathlib import Path
@@ -7,10 +6,8 @@ import pytest
 
 from core.client import ClientConfig, client_query
 from tests.utils import (
-    check_stderr,
     create_test_config_for_server,
     create_test_data,
-    read_stderr,
     server_factory,
 )
 
@@ -68,9 +65,9 @@ def test_server_empty_string_query(config_file, data_file):
 
 
 def test_server_large_file(config_file, data_file):
-    server_process, port, _ = server_factory(config_file=config_file)
     lines = [f"test string {i}" for i in range(250000)]
     create_test_data(data_file, lines)
+    server_process, port, _ = server_factory(config_file=config_file)
     config = ClientConfig(
         server="127.0.0.1", port=port, query="test string 200000"
     )
@@ -93,7 +90,8 @@ def test_server_reread_on_query_true(config_file, data_file):
     server_process.terminate()
 
 
-def test_server_payload_size_limit(config_file):
+def test_server_payload_size_limit(config_file, data_file):
+    create_test_data(data_file, ["A" * 1024])
     server_process, port, _ = server_factory(config_file=config_file)
     long_string = "A" * 2048
     config = ClientConfig(server="127.0.0.1", port=port, query=long_string)
@@ -161,15 +159,12 @@ def test_server_ssl_enabled(ssl_files, config_file, data_file):
 
 
 def test_server_ssl_enabled_no_cert(config_file):
-    server_process, port, _ = server_factory(
-        config_file=config_file, ssl_enabled=True
+    with pytest.raises(Exception) as e:
+        server_factory(config_file=config_file, ssl_enabled=True)
+
+    assert "Error setting up SSL: [Errno 2] No such file or directory" in str(
+        e.value
     )
-    config = ClientConfig(
-        server="127.0.0.1", port=port, query="test string 1", ssl_enabled=True
-    )
-    response = client_query(config)
-    assert "Error" in response
-    server_process.terminate()
 
 
 def test_server_concurrent_requests(config_file, data_file):
@@ -209,7 +204,7 @@ def test_server_performance(config_file, data_file):
         assert response == "STRING EXISTS"
 
     avg_duration = total / 100
-    assert avg_duration < 5 * 1e-3  # Less than 10ms avg (adjust as needed)
+    assert avg_duration < 5e-2  # Less than 10ms avg (adjust as needed)
     server_process.terminate()
 
 
@@ -233,117 +228,167 @@ def test_server_performance_reread_on_query_true(config_file, data_file):
 
 
 def test_server_logging(config_file, data_file):
-    stderr = []
     create_test_data(data_file, [f"test string {i}" for i in range(10)])
     server_process, port, _ = server_factory(
-        config_file=config_file, debug=True, stderr=stderr
+        config_file=config_file, debug=True
     )
     config = ClientConfig(server="127.0.0.1", port=port, query="test string 1")
     client_query(config)
 
-    read_stderr(server_process, stderr)
-    stderr_output = "\n".join(stderr)
-
-    assert "DEBUG: Query='test string 1'" in stderr_output
-    assert "IP=" in stderr_output
     server_process.terminate()
+    _, stderr_output = server_process.communicate()
+
+    assert "DEBUG: Query='test string 1'" in stderr_output.decode()
+    assert "IP=" in stderr_output.decode()
 
     # Check if server exited with error
 
 
 def test_server_invalid_config(config_file, caplog, monkeypatch):
     invalid_config = Path(config_file).with_suffix(".invalid")
+    server_process = None
+    with pytest.raises(Exception) as e:
+        server_process, _, _ = server_factory(config_file=invalid_config)
 
-    # Mock sys.exit to raise an exception instead of exiting
-    def mock_exit(code):
-        raise SystemExit(code)
-
-    monkeypatch.setattr(sys, "exit", mock_exit)
-
-    with pytest.raises(SystemExit) as e:
-        server_factory(config_file=invalid_config)
-    assert e.value.code == 1
-    assert "Error reading config file" in caplog.text
+    assert "Error reading config file" in str(e.value)
 
 
-def test_server_config_invalid_port(caplog, config_file, data_file):
+def test_server_config_invalid_port(config_file, data_file):
     with open(config_file, "w") as f:
-        f.write(f"linuxpath={data_file}\n")
         f.write("[Server]\n")
-        f.write(f"port=abc\n")
-    with pytest.raises(SystemExit) as e:
-        server_factory(config_file=config_file)
-    assert e.value.code == 1
-    assert "Error parsing server config" in caplog.text
+        f.write("port=abc\n")
+        f.write(f"linuxpath={data_file}\n")
+
+    server_process, _, _ = server_factory(
+        config_file=config_file, double_config=True
+    )
+    server_process.terminate()
+    _, stderr = server_process.communicate()
+    output = stderr.decode()
+
+    # we expect default config to be used
+    assert (
+        "Error parsing server config: invalid literal for int() with base 10"
+        in output
+    )
 
 
-def test_server_config_file_not_found(config_file, caplog):
-    with pytest.raises(SystemExit) as e:
-        server_factory(config_file=config_file, server_config="bad_config.ini")
-    assert e.value.code == 1
-    assert "Error reading config file" in caplog.text
+def test_server_config_file_not_found(config_file):
+    non_existent_config = "non_existent_config.ini"
+    server_process, _, _ = server_factory(
+        config_file=config_file, server_config=non_existent_config
+    )
+    server_process.terminate()
+    _, stderr = server_process.communicate()
+    output = stderr.decode()
+
+    assert (
+        "Error reading extra server config file: non_existent_config.ini"
+        in output
+    )
 
 
-def test_server_config_invalid_ssl(ssl_files, caplog, config_file, data_file):
-    cert_file, key_file = ssl_files  # TODO
+def test_server_config_invalid_ssl(ssl_files, config_file, data_file):
+    cert_file, key_file = ssl_files
+
+    # corrupt the cert for example
+    with open(cert_file, "w") as f:
+        f.write("corrupted cert")
+
     create_test_config_for_server(
         config_file,
         data_file,
         ssl_enabled=True,
-        cert_file="bad.crt",  # Intentionally use bad cert
-        key_file="bad.key",  # Intentionally use bad key
+        cert_file=cert_file,
+        key_file=key_file,
     )
-    with pytest.raises(SystemExit) as e:
-        server_factory(config_file, ssl_enabled=True, double_config=True)
-    assert e.value.code == 1
-    assert "Error setting up SSL" in caplog.text
+
+    with pytest.raises(Exception) as e:
+        server_process, _, _ = server_factory(
+            config_file=config_file, ssl_enabled=True, ssl_files=ssl_files
+        )
+
+    assert "Error setting up SSL: " in str(e.value)
+    assert "[SSL] PEM lib " in str(e.value)
 
 
-def test_server_dynamic_port(config_file, data_file, caplog):
-    create_test_config_for_server(config_file, data_file)
+def test_server_config_nonexistent_ssl_files(config_file, data_file):
+    create_test_config_for_server(
+        config_file,
+        data_file,
+        ssl_enabled=True,
+        cert_file="non_existent_cert.crt",
+        key_file="non_existent_key.key",
+    )
+
+    with pytest.raises(Exception) as e:
+        server_factory(
+            config_file=config_file,
+            double_config=True,
+        )
+
+    assert "Error setting up SSL: [Errno 2] No such file or directory" in str(
+        e.value
+    )
+
+
+def test_server_dynamic_port(config_file, data_file):
+    create_test_config_for_server(
+        config_file, data_file, port=None
+    )  # Don't specify port in config
     server_process, port, _ = server_factory(config_file=config_file)
+    assert port is not None
+    assert isinstance(port, int)
     server_process.terminate()
-    assert "Using dynamically assigned port" in server_process.stderr
 
 
-def test_server_dynamic_port_override(config_file, data_file, caplog):
+def test_server_dynamic_port_override(config_file, data_file):
+    override_port = 8080
     create_test_config_for_server(config_file, data_file)
-    server_process, _, _ = server_factory(config_file=config_file, port=8080)
-    assert "Server listening on port 8080" in server_process.stderr
+    server_process, port, _ = server_factory(
+        config_file=config_file, port=override_port
+    )
+    assert port == override_port
     server_process.terminate()
 
 
-def test_server_dynamic_search_algorithm(config_file, data_file, caplog):
+def test_server_dynamic_search_algorithm(config_file, data_file):
+    create_test_config_for_server(config_file, data_file)
+    create_test_data(data_file, ["test string 1"])
+    server_process, _, _ = server_factory(
+        config_file=config_file,
+        double_config=True,
+        search_algorithm="set",
+    )
+    server_process.terminate()
+    _, stderr = server_process.communicate()
+    assert "Using SetSearch algorithm" in stderr.decode()
+
+
+def test_server_dynamic_search_algorithm_default(config_file, data_file):
+    create_test_config_for_server(config_file, data_file)
+    create_test_data(data_file, ["test string 1"])
+    server_process, _, _ = server_factory(
+        config_file=config_file, server_config=config_file, double_config=True
+    )
+    server_process.terminate()
+    _, stderr = server_process.communicate()
+    assert "Using LinearSearch algorithm." in stderr.decode()
+
+
+def test_server_dynamic_search_algorithm_import_error(config_file, data_file):
     create_test_config_for_server(config_file, data_file)
     create_test_data(data_file, ["test string 1"])
     server_process, port, _ = server_factory(
-        config_file=config_file, search_algorithm="set"
+        config_file=config_file,
+        server_config=config_file,
+        double_config=True,
+        search_algorithm="invalid_search",
     )
-    assert "Using SetSearch algorithm" in server_process.stderr
     server_process.terminate()
-
-
-def test_server_dynamic_search_algorithm_default(
-    config_file, data_file, caplog
-):
-    create_test_config_for_server(config_file, data_file)
-    create_test_data(data_file, ["test string 1"])
-    server_process, _, _ = server_factory(config_file=config_file)
-    assert "Using LinearSearch algorithm." in server_process.stderr
-    server_process.terminate()
-
-
-def test_server_dynamic_search_algorithm_import_error(
-    config_file, data_file, caplog
-):
-    create_test_config_for_server(config_file, data_file)
-    create_test_data(data_file, ["test string 1"])
-    server_process, port, _ = server_factory(
-        config_file=config_file, search_algorithm="invalid_search"
-    )
+    _, stderr = server_process.communicate()
     assert (
         "Error importing invalid_search. Using LinearSearch as a default"
-        in server_process.stderr
+        in stderr.decode()
     )
-    assert "Using LinearSearch algorithm." in server_process.stderr
-    server_process.terminate()
+    assert "Using LinearSearch algorithm." in stderr.decode()

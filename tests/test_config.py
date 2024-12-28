@@ -23,22 +23,22 @@ def test_load_server_config_valid(tmp_path, logger):
 def test_load_server_config_missing_linuxpath(tmp_path, logger, caplog):
     config_file = tmp_path / "server_config.ini"
     config_file.write_text("")
-    config = load_server_config(str(config_file), logger)
-    assert config is None
+    with pytest.raises(SystemExit):
+        load_server_config(str(config_file), logger)
     assert "Config file must have a linuxpath line." in caplog.text
 
 
 def test_load_server_config_invalid_file(logger, caplog):
-    config = load_server_config("non_existent_config.ini", logger)
-    assert config is None
+    with pytest.raises(SystemExit):
+        load_server_config("non_existent_config.ini", logger)
     assert "Error reading config file" in caplog.text
 
 
 def test_load_server_config_empty_file(tmp_path, logger, caplog):
     config_file = tmp_path / "empty_config.ini"
     config_file.write_text("")
-    config = load_server_config(str(config_file), logger)
-    assert config is None
+    with pytest.raises(SystemExit):
+        load_server_config(str(config_file), logger)
     assert "Config file must have a linuxpath line." in caplog.text
 
 

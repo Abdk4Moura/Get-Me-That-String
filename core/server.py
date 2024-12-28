@@ -5,20 +5,16 @@ import importlib
 import logging
 import socket
 import ssl
-import sys
 import threading
 import time
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, Tuple, cast
 
 from core.algorithms.linear_search import LinearSearch, SearchAlgorithm
-from core.config import (
-    ServerConfig,
-    load_extra_server_config,
-    load_server_config,
-)
+from core.config import (ServerConfig, load_extra_server_config,
+                         load_server_config)
 from core.logger import setup_logger
-from core.utils import find_available_port, is_port_in_use
+from core.utils import find_available_port
 
 
 def load_search_algorithm(
@@ -76,7 +72,7 @@ class FileSearchServer:
         self.server_socket = self._setup_server()
         self.search_algorithm = search_algorithm
 
-    def _setup_ssl(self) -> Optional[ssl.SSLContext]:
+    def _setup_ssl(self) -> ssl.SSLContext:
         """Set up SSL context if enabled."""
         try:
             context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
@@ -86,7 +82,7 @@ class FileSearchServer:
             return context
         except Exception as e:
             self.logger.error(f"Error setting up SSL: {e}")
-            return None
+            exit(1)
 
     def _setup_server(self) -> socket.socket:
         """Bind and set up the server socket."""
@@ -132,6 +128,7 @@ class FileSearchServer:
                     else self.file_lines
                 )
 
+                lines = cast(List[str], lines)
                 response = (
                     b"STRING EXISTS\n"
                     if self.search_algorithm.search(lines, data)
@@ -264,6 +261,8 @@ if __name__ == "__main__":
             if args.search_algorithm
             else LinearSearch()
         )
+
+        logger.info(f"Using {search_algorithm.__class__.__name__} algorithm.")
 
         logger.info(f"Server configuration: {server_config}")
         server = FileSearchServer(server_config, logger, search_algorithm)

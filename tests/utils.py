@@ -4,18 +4,14 @@ import random
 import socket
 import subprocess
 import sys
-import threading
 import time
 from pathlib import Path
-from threading import Event
-from select import POLLIN, poll, select
-from typing import Optional, Tuple, cast
-
-import pytest
+from typing import List, Optional, Tuple
 
 from core.config import load_extra_server_config
 
-SERVER_STARTUP_TIMEOUT = 350
+
+SERVER_STARTUP_TIMEOUT = 50
 
 
 def generate_test_file(filepath: str, num_lines: int, logger: logging.Logger):
@@ -38,17 +34,14 @@ def is_port_in_use(port: int) -> bool:
 
 def find_available_port(start_port: int, max_ports: int = 100) -> Optional[int]:
     """Find an available port. Returns None if all ports are taken."""
-    # Use a set to keep track of already tried ports for more efficient lookups.
     tried_ports = set()
     for _ in range(max_ports):
-        port = random.randint(
-            start_port, start_port + 1000
-        )  # Try ports within a limited range.
+        port = random.randint(start_port, start_port + 1000)
         if port not in tried_ports:
             if not is_port_in_use(port):
                 return port
             tried_ports.add(port)
-    return None  # If all ports are taken.
+    return None
 
 
 def create_test_config_for_server(
@@ -62,10 +55,10 @@ def create_test_config_for_server(
 ):
     """Create a test config file."""
     with open(config_file, "w") as f:
-        f.write(f"linuxpath={data_file}\n")
         f.write("[Server]\n")
         f.write(f"port={port}\n")
-        f.write(f"REREAD_ON_QUERY={str(reread_on_query)}\n")
+        f.write(f"reread_on_query={str(reread_on_query)}\n")
+        f.write(f"linuxpath={data_file}\n")
         f.write(f"ssl={ssl_enabled}\n")
         if ssl_enabled and cert_file and key_file:
             f.write(f"certfile={cert_file}\n")
@@ -112,7 +105,17 @@ def wait_for_server_shutdown(
     return False
 
 
-def create_test_server_process(
+def is_port_available(port: int) -> bool:
+    """Checks if a port is available."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        try:
+            s.bind(("localhost", port))
+            return True
+        except OSError:
+            return False
+
+
+def _build_server_args(
     config_file: str,
     port: Optional[int] = None,
     reread_on_query: bool = False,
@@ -120,9 +123,9 @@ def create_test_server_process(
     ssl_files: Optional[Tuple[str, str]] = None,
     server_config: Optional[str] = None,
     debug: bool = False,
-    stderr: list[str] = [],
-) -> Tuple[subprocess.Popen[bytes], int, Optional[str], Optional[str]]:
-    """Creates and starts the server process for testing"""
+    search_algorithm: Optional[str] = None,
+) -> Tuple[List[str], int, Optional[str]]:
+    """Builds the server arguments."""
     python_executable = sys.executable
     server_py = Path(__file__).parent.parent / "core" / "server.py"
     server_args = [
@@ -137,74 +140,107 @@ def create_test_server_process(
 
     cert_file, key_file = ssl_files if ssl_files else (None, None)
 
-    if port:
-        server_args.extend(["--port", str(port)])
+    # we are intentionally attempting to
+    # extract server_config here for some port since we cannot
+    # peer into the process from the outside for the port
+    effective_port = port
+    if server_config:
+        silent_logger = logging.getLogger("silent_logger")
+        silent_logger.addHandler(logging.NullHandler())
+        config = load_extra_server_config(server_config, silent_logger)
+        if config and config.port:
+            effective_port = effective_port or config.port
+
+    if effective_port is None:
+        effective_port = find_available_port(44445)
+        if effective_port is None:
+            raise RuntimeError(
+                "Could not find an available port to start the server."
+            )
+
+    server_args.extend(["--port", str(effective_port)])
+
+    if search_algorithm:
+        server_args.extend(["--search_algorithm", search_algorithm])
+
     if ssl_enabled:
-        server_args.extend(["--ssl_enabled", str(ssl_enabled)])
+        server_args.extend(["--ssl_enabled", "True"])
         if cert_file:
             server_args.extend(["--certfile", str(cert_file)])
         if key_file:
             server_args.extend(["--keyfile", str(key_file)])
     if reread_on_query:
-        server_args.extend(["--reread_on_query", str(reread_on_query)])
-
+        server_args.extend(["--reread_on_query", "True"])
     if server_config:
-        server_args.extend(["--server_config", str(config_file)])
-        # see if you can get the port from the server_config
-        # with load_extra_server_config
-        silent_logger = logging.getLogger("silent_logger")
-        silent_logger.addHandler(logging.NullHandler())
-        try:
-            c = load_extra_server_config(server_config, silent_logger)
-            assert c is not None
-            port = port or c.port
-        except Exception:
-            pass
+        server_args.extend(["--server_config", str(server_config)])
 
-    if port is None:
-        port = cast(int, port or find_available_port(44445))
-        server_args.extend(["--port", str(port)])
+    return server_args, effective_port, cert_file
 
-    server_ready = Event()
-    server_error = None
-    server_process = subprocess.Popen(
-        server_args,
-        stderr=subprocess.PIPE,
+
+def server_factory(
+    config_file: str,
+    port: Optional[int] = None,
+    reread_on_query: bool = False,
+    ssl_enabled: bool = False,
+    ssl_files: Optional[Tuple[str, str]] = None,
+    server_config: Optional[str] = None,
+    double_config: bool = False,
+    debug: bool = False,
+    search_algorithm: Optional[str] = None,
+) -> Tuple[subprocess.Popen[bytes], int, Optional[str]]:
+    """Creates and starts the server process for testing.
+
+    Args:
+        config_file: Path to the main server configuration file.
+        port: Port to run the server on. If None, an available port will be found.
+        reread_on_query: Whether to reread the configuration file on query.
+        ssl_enabled: Whether to enable SSL.
+        ssl_files: Tuple of SSL certificate and key file paths.
+        server_config: Path to an additional server configuration file.
+        double_config: If True, uses the `config_file` also as the `server_config`.
+        debug: Whether to enable debug mode for the server.
+        stderr: Optional list to capture the server's stderr output.
+    Returns:
+        A tuple containing the subprocess.Popen object, the port the server is running on,
+        and the path to the SSL certificate file (if SSL is enabled).
+    Raises:
+        RuntimeError: If the server fails to start.
+    """
+    effective_server_config = server_config or (
+        config_file if double_config else None
+    )
+    server_args, effective_port, cert_file = _build_server_args(
+        config_file,
+        port,
+        reread_on_query,
+        ssl_enabled,
+        ssl_files,
+        effective_server_config,
+        debug,
+        search_algorithm,
     )
 
-    def check_server():
-        """Checks the output of the server, and sets an event to signal it is online"""
-        nonlocal server_error
-        nonlocal stderr
-        for line in server_process.stderr:
-            line = line.decode().strip()
-            stderr.append(line)
-            if "Server listening on port" in line:
-                server_ready.set()
-                break
-            # Store error message if server exits unexpectedly
-            if server_process.poll() is not None:
-                server_error = line
-                server_ready.set()
-                break
+    server_process = subprocess.Popen(server_args, stderr=subprocess.PIPE)
 
-    t = threading.Thread(target=check_server)
-    t.start()
-
-    # Check if server exited with error
+    # Immediately check if the process has exited
     if server_process.poll() is not None:
-        error_msg = (
-            server_error
-            or f"Server failed with exit code {server_process.returncode}"
-        )
-        server_process.terminate()
+        error_output, _ = server_process.communicate()
+        error_msg = f"Server failed to start with exit code {server_process.returncode}. Stderr:\n{error_output.decode()}"
         raise RuntimeError(error_msg)
 
-    if not server_ready.wait(timeout=SERVER_STARTUP_TIMEOUT):
-        server_process.terminate()
-        pytest.fail("Server failed to start in time.")
+    # Wait for a short grace period and then check if the port is in use
+    time.sleep(0.1)
+    start_time = time.time()
+    while time.time() - start_time < SERVER_STARTUP_TIMEOUT:
+        if not is_port_available(effective_port):
+            return server_process, effective_port, cert_file
+        time.sleep(0.1)
 
-    return server_process, port, cert_file
+    # If the port is still available after the timeout, the server likely failed
+    server_process.terminate()
+    _, err_out = server_process.communicate()
+    error_msg = f"Server process started but port {effective_port} is not in use after {SERVER_STARTUP_TIMEOUT} seconds. Stderr:\n{err_out.decode()}"
+    raise Exception(error_msg)
 
 
 def create_test_client_process(
@@ -239,76 +275,3 @@ def create_test_client_process(
         text=True,
     )
     return process
-
-
-def server_factory(
-    config_file: str,
-    port: Optional[int] = None,
-    reread_on_query: bool = False,
-    ssl_enabled: bool = False,
-    ssl_files: Optional[Tuple[str, str]] = None,
-    server_config: Optional[str] = None,
-    double_config: bool = False,
-    debug: bool = False,
-    stderr: list[str] = [],
-):
-    """Create and start the server process for testing.
-    @param config_file: Path to the configuration file.
-    @param port: Port to run the server on.
-    @param reread_on_query: Whether to reread the configuration file on query.
-    @param ssl_enabled: Whether to enable SSL.
-    @param ssl_files: Tuple of SSL certificate and key files.
-    @param server_config: Path to the server configuration file.
-    @param double_config: Whether to use the configuration file for the server.
-    @param debug: Whether to enable debug mode.
-    """
-
-    server_process, port, cert_file = create_test_server_process(
-        config_file,
-        port,
-        reread_on_query,
-        ssl_enabled,
-        ssl_files,
-        server_config=(server_config or config_file if double_config else None),
-        debug=debug,
-        stderr=stderr,
-    )
-
-    return server_process, port, cert_file
-
-
-def check_stderr(server_process):
-    """Check if server_process has values in stderr"""
-    poll_obj = poll()
-    poll_obj.register(server_process.stderr, POLLIN)
-
-    events = poll_obj.poll(0)  # Non-blocking poll
-    if events:
-        # Data available on stderr
-        line = server_process.stderr.readline().decode().strip()
-        return line
-    else:
-        # No data available on stderr
-        return None
-
-
-def read_stderr(server_process, stderr_output):
-    """
-    Reads from the stderr stream of the given server process and appends new lines to the stderr_output list.
-
-    Args:
-        server_process (subprocess.Popen): The server process to read from.
-        stderr_output (list): The list to append new stderr lines to.
-    """
-    while True:
-        rlist, _, _ = select([server_process.stderr], [], [], 0)
-        if server_process.stderr in rlist:
-            line = server_process.stderr.readline()
-            if line:
-                stderr_output.append(line.decode().strip())
-            else:
-                break
-        else:
-            break
-    for _ in range(2):
-        stderr_output.append(server_process.stderr.readline().decode("utf-8"))

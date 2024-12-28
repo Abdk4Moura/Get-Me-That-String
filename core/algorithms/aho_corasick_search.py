@@ -1,12 +1,8 @@
-import ahocorasick
 from typing import List
-from abc import ABC, abstractmethod
 
+import ahocorasick
 
-class SearchAlgorithm(ABC):
-    @abstractmethod
-    def search(self, lines: List[str], query: str) -> bool:
-        pass
+from core.algorithms.base import SearchAlgorithm
 
 
 class AhoCorasickSearch(SearchAlgorithm):

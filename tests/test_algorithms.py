@@ -1,9 +1,6 @@
-import pytest
-
 from core.algorithms.aho_corasick_search import AhoCorasickSearch
 from core.algorithms.boyer_moore_search import BoyerMooreSearch
 from core.algorithms.linear_search import LinearSearch
-from core.algorithms.mmap_search import MMapSearch
 from core.algorithms.multiprocessing_search import MultiprocessingSearch
 from core.algorithms.rabin_karp_search import RabinKarpSearch
 from core.algorithms.regex_search import RegexSearch
@@ -31,18 +28,6 @@ def test_set_search_string_exists():
 def test_set_search_string_not_found():
     lines = ["test string 1", "test string 2"]
     searcher = SetSearch()
-    assert searcher.search(lines, "non existing query") is False
-
-
-def test_mmap_search_string_exists():
-    lines = ["test string 1", "test string 2"]
-    searcher = MMapSearch()
-    assert searcher.search(lines, "test string 1") is True
-
-
-def test_mmap_search_string_not_found():
-    lines = ["test string 1", "test string 2"]
-    searcher = MMapSearch()
     assert searcher.search(lines, "non existing query") is False
 
 

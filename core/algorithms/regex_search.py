@@ -1,12 +1,7 @@
 import re
-from abc import ABC, abstractmethod
 from typing import List
 
-
-class SearchAlgorithm(ABC):
-    @abstractmethod
-    def search(self, lines: List[str], query: str) -> bool:
-        pass
+from core.algorithms.base import SearchAlgorithm
 
 
 class RegexSearch(SearchAlgorithm):

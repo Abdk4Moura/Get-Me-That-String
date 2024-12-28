@@ -1,11 +1,6 @@
 from typing import List
-from abc import ABC, abstractmethod
 
-
-class SearchAlgorithm(ABC):
-    @abstractmethod
-    def search(self, lines: List[str], query: str) -> bool:
-        pass
+from core.algorithms.base import SearchAlgorithm
 
 
 class SetSearch(SearchAlgorithm):

@@ -1,20 +1,30 @@
+import logging
+from pathlib import Path
 from typing import List
 
-from core.algorithms.base import SearchAlgorithm
+from core.algorithms.base import SearchAlgorithm, reread_on_query_if_required
+from core.config import ServerConfig
 
 
 class RabinKarpSearch(SearchAlgorithm):
     """Searches a file using the Rabin-Karp algorithm."""
 
-    def search(self, lines: List[str], query: str) -> bool:
-        try:
-            for line in lines:
-                if self.rabin_karp(line, query):
-                    return True
-            return False
-        except Exception as e:
-            print(f"Error reading file: {e}")
-            return False
+    name: str = "Rabin-Karp"
+
+    def __init__(self, config: ServerConfig, logger: logging.Logger):
+        super().__init__(config, logger)
+
+    def _read_data(self, file_path: Path) -> List[str]:
+        """Reads lines from the file."""
+        return self._read_lines(file_path)
+
+    @reread_on_query_if_required
+    def search(self, query: str) -> bool:
+        """Searches for the query using the Rabin-Karp algorithm."""
+        for line in self._data:
+            if self.rabin_karp(line, query):
+                return True
+        return False
 
     def rabin_karp(self, text: str, pattern: str, prime=101) -> bool:
         """Performs Rabin-Karp algorithm"""

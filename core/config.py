@@ -4,6 +4,7 @@ import re
 from dataclasses import dataclass
 from typing import Optional
 
+from core.logger import Verbosity
 from core.utils import check_file_exists
 
 
@@ -13,10 +14,11 @@ class ServerConfig:
 
     port: int = 44445
     ssl_enabled: bool = False
-    reread_on_query: bool = True
+    reread_on_query: bool = False
     linux_path: str = ""
     certfile: str = "server.crt"
     keyfile: str = "server.key"
+    verbosity: Verbosity = logging.INFO
 
 
 @dataclass

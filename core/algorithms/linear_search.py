@@ -1,18 +1,27 @@
-from typing import List
+import logging
+from pathlib import Path
+from typing import Any, List
 
-from core.algorithms.base import SearchAlgorithm
+from core.algorithms.base import SearchAlgorithm, reread_on_query_if_required
+from core.config import ServerConfig
 
 
 class LinearSearch(SearchAlgorithm):
     """Performs a linear search of a file."""
 
-    def search(self, lines: List[str], query: str) -> bool:
-        """Performs a simple linear search of a file, returning true if a line matches the query exactly."""
-        try:
-            for line in lines:
-                if line == query:
-                    return True
-            return False
-        except Exception as e:
-            print(f"Error reading file: {e}")
-            return False
+    name: str = "Linear Search"
+
+    def __init__(self, config: ServerConfig, logger: logging.Logger):
+        super().__init__(config, logger)
+
+    def _read_data(self, file_path: Path) -> List[str]:
+        """Reads lines from the file."""
+        return self._read_lines(file_path)
+
+    @reread_on_query_if_required
+    def search(self, query: str) -> bool:
+        """Performs a simple linear search of the data."""
+        for line in self._data:
+            if line == query:
+                return True
+        return False

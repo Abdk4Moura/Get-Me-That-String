@@ -1,5 +1,18 @@
-import logging
 import inspect
+import logging
+from typing import Literal, TypeAlias, Union
+
+# create a custom type based on the logging.*
+# a union of Union[logging.DEBUG, logging.INFO, logging.WARNING,
+# logging.ERROR, logging.CRITICAL]
+Verbosity: TypeAlias = Union[
+    Literal[0],  # logging.NOTSET
+    Literal[10],  # logging.DEBUG
+    Literal[20],  # logging.INFO
+    Literal[30],  # logging.WARNING
+    Literal[40],  # logging.ERROR
+    Literal[50],  # logging.CRITICAL
+]
 
 
 # ANSI escape codes for colorizing log messages
@@ -50,20 +63,20 @@ class CustomFormatter(logging.Formatter):
 
 
 def setup_logger(
-    name: str = "AppLogger", level: str = "INFO"
+    name: str = "AppLogger", level: Verbosity = "INFO"
 ) -> logging.Logger:
     """Set up and return a configured logger."""
     logger = logging.getLogger(name)
-    logger.setLevel(getattr(logging, level.upper(), logging.INFO))
+    logger.setLevel(level)
 
     formatter = CustomFormatter()
 
     ch = logging.StreamHandler()
-    ch.setLevel(getattr(logging, level.upper(), logging.INFO))
+    ch.setLevel(level)
     ch.setFormatter(formatter)
 
     fh = logging.FileHandler(f"{name}.log")
-    fh.setLevel(getattr(logging, level.upper(), logging.INFO))
+    fh.setLevel(level)
     fh.setFormatter(formatter)
 
     logger.addHandler(ch)

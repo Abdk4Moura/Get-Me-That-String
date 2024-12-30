@@ -8,7 +8,7 @@ from core.config import ClientConfig, load_client_config
 from core.logger import setup_logger
 
 
-TIMEOUT = 1
+TIMEOUT = 3  # for unusual cases, 3 seconds
 
 
 def client_query(config: ClientConfig) -> str:

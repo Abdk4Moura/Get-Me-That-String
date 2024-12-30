@@ -81,7 +81,7 @@ def test_client_default_config(config_file, default_test_state):
 
 
 def test_client_commandline_parameters_override(
-    ssl_files, config_file, data_file, tmp_path
+    ssl_files, config_file, tmp_path, default_test_state
 ):
     server_process, port, cert_file = server_factory(
         config_file, ssl_enabled=True, ssl_files=ssl_files
@@ -93,7 +93,6 @@ def test_client_commandline_parameters_override(
         dst.write(src.read())
     # Create a client config file
     config_file = tmp_path / "test_client_config.ini"
-    create_test_data(data_file, ["test string 1", "test string 2"])
     with config_file.open("w") as f:
         f.write("[Client]\n")
         f.write("server=127.0.0.1\n")

@@ -6,7 +6,7 @@ import logging
 import multiprocessing
 import sys
 import time
-from abc import ABC, abstractmethod
+from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, List
 
 from core.algorithms.aho_corasick_search import AhoCorasickSearch
@@ -16,155 +16,128 @@ from core.algorithms.multiprocessing_search import MultiprocessingSearch
 from core.algorithms.rabin_karp_search import RabinKarpSearch
 from core.algorithms.regex_search import RegexSearch
 from core.algorithms.set_search import SetSearch
+from core.config import ServerConfig
 from core.logger import setup_logger
 from core.utils import check_file_exists, generate_test_file
 
 
-class SearchAlgorithm(ABC):
-    @abstractmethod
-    def search(self, filename: str, query: str) -> bool:
-        pass
-
-
 def run_speed_test(
-    algorithm: SearchAlgorithm,
-    filepath: str,
-    query: str,
-    num_runs: int,
-    reread_on_query: bool,
-    logger: logging.Logger,
+    algorithm_instance, query: str, num_runs: int, logger: logging.Logger
 ) -> Dict:
-    """Runs a speed test for a given algorithm."""
+    """Runs a speed test for a given algorithm instance."""
     logger.debug(
-        f"Running speed test for algorithm: {algorithm.__class__.__name__}, file: {filepath}, query: {query}, reread: {reread_on_query}"
+        f"Running speed test for {algorithm_instance.name}, query: {query}"
     )
     times = []
     for _ in range(num_runs):
         start_time = time.perf_counter()
-        algorithm.search(filepath, query)
-        end_time = time.perf_counter()
-        elapsed_time = end_time - start_time
-        if elapsed_time < 0:
-            logger.warning(
-                f"Negative elapsed time detected: {elapsed_time} for {algorithm.__class__.__name__} on {filepath}"
-            )
-            elapsed_time = 0  # Safeguard against negative times
-        times.append(elapsed_time)
+        algorithm_instance.search(query)
+        times.append(time.perf_counter() - start_time)
 
+    valid_times = [t for t in times if t >= 0]
     return {
-        "algorithm": algorithm.__class__.__name__,
-        "filepath": filepath,
+        "algorithm": algorithm_instance.name,
         "query": query,
         "num_runs": num_runs,
-        "reread_on_query": reread_on_query,
-        "avg_time": sum(times) / num_runs if times else 0,
-        "min_time": min(times) if times else 0,
-        "max_time": max(times) if times else 0,
+        "avg_time": sum(valid_times) / len(valid_times) if valid_times else 0,
+        "min_time": min(valid_times) if valid_times else 0,
+        "max_time": max(valid_times) if valid_times else 0,
     }
 
 
-def _worker(filepath: str, query: str, algorithm: SearchAlgorithm) -> float:
-    """Worker function for multiprocessing."""
-    start_time = time.perf_counter()
-    algorithm.search(filepath, query)
-    end_time = time.perf_counter()
-    elapsed_time = end_time - start_time
-    if elapsed_time < 0:
-        logging.warning(
-            f"Negative elapsed time detected in worker: {elapsed_time} for {algorithm.__class__.__name__} on {filepath}"
-        )
-        elapsed_time = 0  # Safeguard
-    return elapsed_time
-
-
-def run_concurrency_test(
-    algorithm: SearchAlgorithm,
+def _collect_speed_test_data_single(
+    algorithm_instance,
     filepath: str,
-    query: str,
-    num_runs: int,
-    num_concurrent: int,
-    reread_on_query: bool,
-    logger: logging.Logger,
-) -> Dict:
-    """Tests concurrency of the algorithms"""
-    logger.debug(
-        f"Running concurrency test for algorithm: {algorithm.__class__.__name__}, file: {filepath}, query: {query}, reread: {reread_on_query} concurrent: {num_concurrent}"
-    )
-    start_time = time.perf_counter()
-    with multiprocessing.Pool(processes=num_concurrent) as pool:
-        times = pool.starmap(
-            _worker, [(filepath, query, algorithm) for _ in range(num_runs)]
-        )
-    end_time = time.perf_counter()
-    total_time = end_time - start_time
-    return {
-        "algorithm": algorithm.__class__.__name__,
-        "filepath": filepath,
-        "query": query,
-        "num_runs": num_runs,
-        "num_concurrent": num_concurrent,
-        "reread_on_query": reread_on_query,
-        "avg_time": sum(times) / num_runs if times else 0,
-        "total_time": total_time,
-    }
-
-
-def collect_speed_test_data(
-    filepaths: List[str],
     queries: List[str],
     num_runs: int,
     reread_on_query: bool,
-    num_concurrent: int,
+    logger: logging.Logger,
+):
+    """Collect speed test data for a single algorithm instance."""
+    results = []
+    for query in queries:
+        results.append(
+            run_speed_test(algorithm_instance, query, num_runs, logger)
+            | {
+                "filepath": filepath,
+                "reread_on_query": reread_on_query,
+            }
+        )
+    return results
+
+
+def collect_speed_test_data(
+    filepath: str,
+    queries: List[str],
+    num_runs: int,
+    reread_on_query: bool,
     logger: logging.Logger,
 ) -> List[Dict]:
-    """Collect speed test data for different algorithms."""
+    """Collect speed test data for different algorithms in parallel."""
+    config = ServerConfig(
+        linux_path=filepath,
+        port=0,
+        ssl_enabled=False,
+        reread_on_query=reread_on_query,
+    )
     algorithms = [
-        LinearSearch(),
-        SetSearch(),
-        AhoCorasickSearch(),
-        RabinKarpSearch(),
-        BoyerMooreSearch(),
-        RegexSearch(),
-        MultiprocessingSearch(),
+        LinearSearch(config, logger),
+        SetSearch(config, logger),
+        AhoCorasickSearch(config, logger),
+        RabinKarpSearch(config, logger),
+        BoyerMooreSearch(config, logger),
+        RegexSearch(config, logger),
+        # Important: MultiprocessingSearch will run within the existing process here
+        MultiprocessingSearch(config, logger),
     ]
-    data = []
-    for algorithm in algorithms:
-        for filepath in filepaths:
-            for query in queries:
-                if num_concurrent > 1:
-                    result = run_concurrency_test(
-                        algorithm,
-                        filepath,
-                        query,
-                        num_runs,
-                        num_concurrent,
-                        reread_on_query,
-                        logger,
-                    )
-                else:
-                    result = run_speed_test(
-                        algorithm,
-                        filepath,
-                        query,
-                        num_runs,
-                        reread_on_query,
-                        logger,
-                    )
-                data.append(result)
-    return data
+
+    with ThreadPoolExecutor() as executor:
+        futures = [
+            executor.submit(
+                _collect_speed_test_data_single,
+                alg,
+                filepath,
+                queries,
+                num_runs,
+                reread_on_query,
+                logger,
+            )
+            for alg in algorithms
+        ]
+        results = [result for future in futures for result in future.result()]
+    return results
 
 
 def save_test_data(data: List[Dict], output_path: str, logger: logging.Logger):
     """Save test data to CSV file."""
-    logger.debug(f"Saving test data to: {output_path}")
+    logger.info(f"Saving test data to: {output_path}")
+    if not data:
+        logger.warning("No data to save.")
+        return
     with open(output_path, "w", newline="") as csvfile:
-        fieldnames = data[0].keys() if data else []
+        fieldnames = data[0].keys()
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(data)
 
 
-if __name__ == "__main__":
+def _run_tests_for_file(
+    filepath: str,
+    queries: List[str],
+    num_runs: int,
+    reread_on_query: bool,
+    logger: logging.Logger,
+):
+    """Helper function to run tests for a single file."""
+    logger.info(
+        f"Starting tests for file: {filepath}, reread_on_query={reread_on_query}"
+    )
+    return collect_speed_test_data(
+        filepath, queries, num_runs, reread_on_query, logger
+    )
+
+
+def main():
     parser = argparse.ArgumentParser(
         description="Run speed tests and save results."
     )
@@ -176,85 +149,77 @@ if __name__ == "__main__":
         "--verbose",
         action="count",
         default=0,
-        help="Increase verbosity level (can be used multiple times)",
+        help="Increase verbosity level",
     )
     args = parser.parse_args()
 
-    # Set up logging level based on verbosity
-    log_level = logging.WARNING  # Default
-    if args.verbose == 1:
-        log_level = logging.INFO
-    elif args.verbose >= 2:
-        log_level = logging.DEBUG
     logger = setup_logger(
-        name="SpeedTestLogger", level="DEBUG"
-    )  # Set it to Debug to ensure that no output is missed.
-    logger.setLevel(log_level)
+        name="SpeedTestLogger",
+        level={0: logging.WARNING, 1: logging.INFO, 2: logging.DEBUG}.get(
+            args.verbose, logging.DEBUG
+        ),
+    )
 
-    # Example usage
-    file_sizes = [10000, 100000, 250000, 500000, 750000, 1000000]
+    file_sizes = [10_000, 100_000, 250_000, 500_000, 750_000, 1_000_000]
     queries = [
         "test string 5000",
         "non existing string",
         "test string 1000",
-        "test string 1000000",
+        "test string 999999",
     ]
     num_runs = 10
-    num_concurrent = [1, 10, 50, 100, 200]
-    python_executable = sys.executable  # <--- Get Python interpreter path
-    filepaths = []
-    for file_size in file_sizes:
-        filepath = f"test_data_{file_size}.txt"
-        generate_test_file(filepath, file_size, logger)
-        filepaths.append(filepath)
+    filepaths = [f"test_data_{size}.txt" for size in file_sizes]
+    output_files = {
+        True: "speed_test_data_reread_true.csv",
+        False: "speed_test_data_reread_false.csv",
+    }
 
-    output_files = [
-        "speed_test_data_reread_true.csv",
-        "speed_test_data_reread_false.csv",
-        "concurrency_test_data.csv",
-    ]
+    # Generate test files in parallel
+    with ThreadPoolExecutor() as executor:
+        futures = [
+            executor.submit(
+                generate_test_file,
+                filepath,
+                int(filepath.split("_")[-1].split(".")[0]),
+                logger,
+            )
+            for filepath in filepaths
+        ]
+        for _ in futures:  # Wait for all files to be generated
+            pass
 
     if not args.force:
-        existing_files = [f for f in output_files if check_file_exists(f)]
-        if existing_files:
-            response = input(
-                f"The following files exist {existing_files}. Do you wish to override them? (y/n)"
-            )
-            if response.lower() != "y":
-                logger.info("Aborting test.")
-                exit()
-    logger.info("Starting speed test with reread_on_query=True")
-    data_reread_true = collect_speed_test_data(
-        filepaths,
-        queries,
-        num_runs,
-        reread_on_query=True,
-        num_concurrent=1,
-        logger=logger,
-    )
-    save_test_data(data_reread_true, "speed_test_data_reread_true.csv", logger)
+        existing_files = [
+            f for f in output_files.values() if check_file_exists(f)
+        ]
+        if (
+            existing_files
+            and input(
+                f"Overwrite existing files? {existing_files} (y/n): "
+            ).lower()
+            == "n"
+        ):
+            logger.info("Aborting test.")
+            sys.exit()
 
-    logger.info("Starting speed test with reread_on_query=False")
-    data_reread_false = collect_speed_test_data(
-        filepaths,
-        queries,
-        num_runs,
-        reread_on_query=False,
-        num_concurrent=1,
-        logger=logger,
-    )
-    save_test_data(
-        data_reread_false, "speed_test_data_reread_false.csv", logger
-    )
+    all_test_data = []
+    with multiprocessing.Pool() as pool:
+        test_params = [
+            (filepath, queries, num_runs, reread, logger)
+            for filepath in filepaths
+            for reread in [True, False]
+        ]
+        results = pool.starmap(_run_tests_for_file, test_params)
+        all_test_data.extend(results)
 
-    logger.info("Starting concurrency test")
-    concurrency_data = collect_speed_test_data(
-        filepaths,
-        queries,
-        num_runs,
-        reread_on_query=False,
-        num_concurrent=10,
-        logger=logger,
-    )
-    save_test_data(concurrency_data, "concurrency_test_data.csv", logger)
+    for reread, output_file in output_files.items():
+        data_to_save = [
+            item for item in all_test_data if item["reread_on_query"] == reread
+        ]
+        save_test_data(data_to_save, output_file, logger)
+
     logger.info("Speed test complete")
+
+
+if __name__ == "__main__":
+    main()

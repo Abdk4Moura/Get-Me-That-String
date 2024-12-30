@@ -9,9 +9,9 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 
 from core.config import load_extra_server_config
+from core.logger import Verbosity
 
-
-SERVER_STARTUP_TIMEOUT = 50
+SERVER_STARTUP_TIMEOUT = 2
 
 
 def generate_test_file(filepath: str, num_lines: int, logger: logging.Logger):
@@ -122,7 +122,7 @@ def _build_server_args(
     ssl_enabled: bool = False,
     ssl_files: Optional[Tuple[str, str]] = None,
     server_config: Optional[str] = None,
-    debug: bool = False,
+    verbosity: Verbosity = logging.INFO,
     search_algorithm: Optional[str] = None,
 ) -> Tuple[List[str], int, Optional[str]]:
     """Builds the server arguments."""
@@ -135,8 +135,16 @@ def _build_server_args(
         str(config_file),
     ]
 
-    if debug:
-        server_args.extend(["-v", "DEBUG"])
+    # Map log levels to number of -v flags
+    v_count = {
+        logging.DEBUG: 4,
+        logging.INFO: 3,
+        logging.WARNING: 2,
+        logging.ERROR: 1,
+    }.get(verbosity, 0)
+
+    if v_count:
+        server_args.extend(["-" + "v" * v_count])
 
     cert_file, key_file = ssl_files if ssl_files else (None, None)
 
@@ -164,13 +172,13 @@ def _build_server_args(
         server_args.extend(["--search_algorithm", search_algorithm])
 
     if ssl_enabled:
-        server_args.extend(["--ssl_enabled", "True"])
+        server_args.extend(["--ssl_enabled"])
         if cert_file:
             server_args.extend(["--certfile", str(cert_file)])
         if key_file:
             server_args.extend(["--keyfile", str(key_file)])
     if reread_on_query:
-        server_args.extend(["--reread_on_query", "True"])
+        server_args.extend(["--reread_on_query"])
     if server_config:
         server_args.extend(["--server_config", str(server_config)])
 
@@ -185,7 +193,7 @@ def server_factory(
     ssl_files: Optional[Tuple[str, str]] = None,
     server_config: Optional[str] = None,
     double_config: bool = False,
-    debug: bool = False,
+    verbosity: Verbosity = logging.INFO,
     search_algorithm: Optional[str] = None,
 ) -> Tuple[subprocess.Popen[bytes], int, Optional[str]]:
     """Creates and starts the server process for testing.
@@ -216,7 +224,7 @@ def server_factory(
         ssl_enabled,
         ssl_files,
         effective_server_config,
-        debug,
+        verbosity,
         search_algorithm,
     )
 

@@ -7,18 +7,31 @@ import socket
 import ssl
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
+from functools import wraps
 from pathlib import Path
-from typing import List, Tuple, cast
+from typing import Tuple, Type
 
-from core.algorithms.linear_search import LinearSearch, SearchAlgorithm
-from core.config import (ServerConfig, load_extra_server_config,
-                         load_server_config)
+from core.algorithms.aho_corasick_search import AhoCorasickSearch
+from core.algorithms.base import SearchAlgorithm
+from core.algorithms.boyer_moore_search import BoyerMooreSearch
+from core.algorithms.linear_search import LinearSearch
+from core.algorithms.set_search import SetSearch
+from core.config import (
+    ServerConfig,
+    load_extra_server_config,
+    load_server_config,
+)
 from core.logger import setup_logger
 from core.utils import find_available_port
 
+DEFAULT_SEARCH: Type[SearchAlgorithm] = LinearSearch
+CLIENT_SOCKET_TIMEOUT = 5.01e-2  # 50ms
+MAX_WORKERS = 10000
+
 
 def load_search_algorithm(
-    algorithm_name: str, logger: logging.Logger
+    algorithm_name: str, logger: logging.Logger, config: ServerConfig
 ) -> SearchAlgorithm:
     """Loads a search algorithm dynamically."""
     try:
@@ -26,28 +39,18 @@ def load_search_algorithm(
         module = importlib.import_module(module_name)
         class_name = (
             "".join(
-                word.capitalize() for word in algorithm_name.lower().split("_")
+                word.capitalize() for word in algorithm_name.lower().split()
             )
             + "Search"
         )
         search_class = getattr(module, class_name)
-        logger.info(f"Using {search_class.__name__} algorithm.")
-        return search_class()
-    except ImportError:
-        logger.error(
-            f"Error importing {algorithm_name}. Using LinearSearch as a default"
-        )
-        return LinearSearch()
-    except AttributeError:
-        logger.error(
-            f"Error importing {algorithm_name}. Using LinearSearch as a default"
-        )
-        return LinearSearch()
+        logger.info(f"Using {search_class.name} algorithm.")
+        return search_class(config, logger)
     except Exception as e:
         logger.error(
-            f"Error importing {algorithm_name}: {e}. Using LinearSearch as a default"
+            f"Error importing {algorithm_name}: {e}. Using {DEFAULT_SEARCH.name} as a default"
         )
-        return LinearSearch()
+        return DEFAULT_SEARCH(config, logger)
 
 
 class FileSearchServer:
@@ -61,14 +64,13 @@ class FileSearchServer:
     ):
         self.logger = logger
         self.config = config
+        # TODO: add a max workers config option
+        self.thread_pool = ThreadPoolExecutor(max_workers=MAX_WORKERS)
         self.port = self.config.port
         self.ssl_enabled = self.config.ssl_enabled
         self.reread_on_query = self.config.reread_on_query
         self.linux_path = Path(self.config.linux_path)
         self.ssl_context = self._setup_ssl() if self.ssl_enabled else None
-        self.file_lines = (
-            self._load_file_lines() if not self.reread_on_query else None
-        )
         self.server_socket = self._setup_server()
         self.search_algorithm = search_algorithm
 
@@ -96,25 +98,17 @@ class FileSearchServer:
             self.logger.error(f"Error setting up server socket: {e}")
             exit(1)
 
-    def _load_file_lines(self) -> List[str]:
-        """Load the file contents into memory."""
-        try:
-            with self.linux_path.open("r") as f:
-                lines = [line.strip() for line in f]
-            self.logger.info("File loaded into memory.")
-            return lines
-        except Exception as e:
-            self.logger.error(f"Error loading file: {e}")
-            exit(1)
-
     def _handle_client(
         self, client_socket: socket.socket, client_address: Tuple[str, int]
     ):
         """Handle client requests in a separate thread."""
         with client_socket:
+            # r = b"STRING EXISTS\n"
+            # client_socket.sendall(r)
+            # return
             start_time = time.time()
             try:
-                client_socket.settimeout(0.5)  # Set 5 second timeout
+                client_socket.settimeout(CLIENT_SOCKET_TIMEOUT)
                 data: str = (
                     client_socket.recv(1024).decode("utf-8").strip("\x00")
                 )
@@ -122,16 +116,12 @@ class FileSearchServer:
                     client_socket.sendall(b"STRING NOT FOUND\n")
                     return
 
-                lines = (
-                    self._load_file_lines()
-                    if self.reread_on_query
-                    else self.file_lines
-                )
+                if self.config.reread_on_query:
+                    self.search_algorithm.reload_data()
 
-                lines = cast(List[str], lines)
                 response = (
                     b"STRING EXISTS\n"
-                    if self.search_algorithm.search(lines, data)
+                    if self.search_algorithm.search(data)
                     else b"STRING NOT FOUND\n"
                 )
                 client_socket.sendall(response)
@@ -162,7 +152,7 @@ class FileSearchServer:
                     pass
 
     def start(self) -> None:
-        """Start the server and accept connections."""
+        """Start the server and accept connections using a thread pool."""
         try:
             while True:
                 client_socket, client_address = self.server_socket.accept()
@@ -171,10 +161,9 @@ class FileSearchServer:
                     client_socket = self.ssl_context.wrap_socket(
                         client_socket, server_side=True
                     )
-                threading.Thread(
-                    target=self._handle_client,
-                    args=(client_socket, client_address),
-                ).start()
+                self.thread_pool.submit(
+                    self._handle_client, client_socket, client_address
+                )
         except Exception as e:
             self.logger.critical(f"Server failed to start: {e}")
             exit(1)
@@ -198,10 +187,12 @@ if __name__ == "__main__":
         "--search_algorithm", required=False, help="Search algorithm to use."
     )
     parser.add_argument("--port", type=int, help="Port to bind the server to.")
-    parser.add_argument("--ssl_enabled", type=bool, help="Enable SSL.")
+    parser.add_argument(
+        "--ssl_enabled", action="store_true", help="Enable SSL."
+    )
     parser.add_argument(
         "--reread_on_query",
-        type=bool,
+        action="store_true",
         help="Set to true to reread config file.",
     )
     parser.add_argument("--certfile", type=str, help="Path to certificate file")
@@ -211,13 +202,22 @@ if __name__ == "__main__":
     parser.add_argument(
         "-v",
         "--verbose",
-        default="INFO",
-        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
-        help="Increase output verbosity",
+        action="count",
+        default=0,
+        help="Increase output verbosity (v=WARNING, vv=INFO, vvv=DEBUG)",
     )
 
     args = parser.parse_args()
-    logger = setup_logger(name="server", level=args.verbose)
+    # Convert verbosity count to logging level
+    log_levels = {
+        0: logging.NOTSET,  # silent
+        1: logging.ERROR,  # -v
+        2: logging.WARNING,  # -vv
+        3: logging.INFO,  # -vvv
+        4: logging.DEBUG,  # -vvvv
+    }
+    verbosity = min(args.verbose, 4)  # cap at 4
+    logger = setup_logger(name="server", level=log_levels[verbosity])
 
     try:
         server_config = load_server_config(args.config, logger)
@@ -257,9 +257,9 @@ if __name__ == "__main__":
             logger.info(f"Using dynamically assigned port: {port}")
 
         search_algorithm = (
-            load_search_algorithm(args.search_algorithm, logger)
+            load_search_algorithm(args.search_algorithm, logger, server_config)
             if args.search_algorithm
-            else LinearSearch()
+            else DEFAULT_SEARCH(server_config, logger)
         )
 
         logger.info(f"Using {search_algorithm.__class__.__name__} algorithm.")

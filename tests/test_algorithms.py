@@ -1,5 +1,6 @@
 import logging
 from unittest.mock import MagicMock
+from copy import deepcopy
 
 import pytest
 
@@ -52,6 +53,35 @@ def test_search_string_exists(
     monkeypatch.setattr(SearchAlgorithm, "reload_data", MagicMock())
     lines = ["test string 1", "test string 2"]
     searcher = search_class(dummy_config, dummy_logger)
+    searcher._data = lines  # Directly set data for simplicity
+    assert searcher.search("test string 1") is True
+
+
+@pytest.mark.parametrize(
+    "search_class",
+    [
+        LinearSearch,
+        SetSearch,
+        AhoCorasickSearch,
+        RabinKarpSearch,
+        BoyerMooreSearch,
+        RegexSearch,
+        MultiprocessingSearch,
+    ],
+    ids=lambda x: x.name,
+)
+def test_search_string_exists_with_file(
+    search_class, dummy_config: ServerConfig, dummy_logger, tmp_path
+):
+    test_file = tmp_path / "test_file"
+    lines = ["test string 1", "test string 2"]
+    with open(test_file, "w") as file:
+        for line in lines:
+            file.write(line + "\n")
+
+    new_dummy_config = deepcopy(dummy_config)
+    new_dummy_config.linux_path = str(test_file)
+    searcher = search_class(new_dummy_config, dummy_logger)
     searcher._data = lines  # Directly set data for simplicity
     assert searcher.search("test string 1") is True
 

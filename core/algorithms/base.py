@@ -30,7 +30,8 @@ def reread_on_query_if_required(method):
 
     @wraps(method)
     def wrapper(self, *args, **kwargs):
-        self.reload_data()
+        if self.config.reread_on_query:
+            self.reload_data()
         return method(self, *args, **kwargs)
 
     return wrapper

@@ -5,16 +5,12 @@ import importlib
 import logging
 import socket
 import ssl
-import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from functools import wraps
 from pathlib import Path
 from typing import Tuple, Type
 
-from core.algorithms.aho_corasick_search import AhoCorasickSearch
 from core.algorithms.base import SearchAlgorithm
-from core.algorithms.boyer_moore_search import BoyerMooreSearch
 from core.algorithms.linear_search import LinearSearch
 from core.algorithms.set_search import SetSearch
 from core.config import (
@@ -25,9 +21,9 @@ from core.config import (
 from core.logger import setup_logger
 from core.utils import find_available_port
 
-DEFAULT_SEARCH: Type[SearchAlgorithm] = LinearSearch
-CLIENT_SOCKET_TIMEOUT = 5.01e-2  # 50ms
-MAX_WORKERS = 10000
+DEFAULT_SEARCH: Type[SearchAlgorithm] = SetSearch
+CLIENT_SOCKET_TIMEOUT = 5.01e-3  # 50ms
+MAX_WORKERS = 100
 
 
 def load_search_algorithm(

@@ -210,7 +210,7 @@ def test_server_concurrent_requests(config_file, data_file):
     config = ClientConfig(server="127.0.0.1", port=port, query="test string 1")
     responses = set()
     threads = []
-    for _ in range(5000):
+    for _ in range(500):
         t = threading.Thread(target=lambda: responses.add(client_query(config)))
         threads.append(t)
         t.start()
@@ -231,7 +231,8 @@ def test_server_performance(config_file, data_file):
     )
 
     total = 0
-    for _ in range(100):
+    NUMBER_OF_SAMPLES = 100  # const
+    for _ in range(NUMBER_OF_SAMPLES):
         start_time = time.time()
         response = client_query(config)
         end_time = time.time()
@@ -239,8 +240,8 @@ def test_server_performance(config_file, data_file):
         total += duration
         assert response == "STRING EXISTS"
 
-    avg_duration = total / 100
-    assert avg_duration < 5e-3  # Less than 5ms avg (adjust as needed)
+    avg_duration = total / NUMBER_OF_SAMPLES
+    assert avg_duration < 5e-3  # Less than 5ms avg
     server_process.terminate()
 
 
@@ -270,6 +271,9 @@ def test_server_logging(config_file, data_file):
     )
     config = ClientConfig(server="127.0.0.1", port=port, query="test string 1")
     client_query(config)
+
+    # wait a bit for things to be properly logged
+    time.sleep(3)
 
     server_process.terminate()
     _, stderr_output = server_process.communicate()

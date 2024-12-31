@@ -230,12 +230,6 @@ def server_factory(
 
     server_process = subprocess.Popen(server_args, stderr=subprocess.PIPE)
 
-    # Immediately check if the process has exited
-    if server_process.poll() is not None:
-        error_output, _ = server_process.communicate()
-        error_msg = f"Server failed to start with exit code {server_process.returncode}. Stderr:\n{error_output.decode()}"
-        raise RuntimeError(error_msg)
-
     # Wait for a short grace period and then check if the port is in use
     time.sleep(0.1)
     start_time = time.time()

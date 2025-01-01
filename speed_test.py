@@ -3,10 +3,9 @@
 import argparse
 import csv
 import logging
-import multiprocessing
 import sys
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from typing import Dict, List
 
 from core.algorithms.aho_corasick_search import AhoCorasickSearch
@@ -87,24 +86,35 @@ def collect_speed_test_data(
         RabinKarpSearch(config, logger),
         BoyerMooreSearch(config, logger),
         RegexSearch(config, logger),
-        # Important: MultiprocessingSearch will run within the existing process here
-        MultiprocessingSearch(config, logger),
     ]
 
-    with ThreadPoolExecutor() as executor:
-        futures = [
-            executor.submit(
-                _collect_speed_test_data_single,
-                alg,
-                filepath,
-                queries,
-                num_runs,
-                reread_on_query,
-                logger,
+    with ProcessPoolExecutor() as executor:
+        results = []
+        for alg in algorithms:
+            results.extend(
+                executor.submit(
+                    _collect_speed_test_data_single,
+                    alg,
+                    filepath,
+                    queries,
+                    num_runs,
+                    reread_on_query,
+                    logger,
+                ).result()
             )
-            for alg in algorithms
-        ]
-        results = [result for future in futures for result in future.result()]
+
+    # Run MultiprocessingSearch separately as it requires its own processes
+    results.extend(
+        _collect_speed_test_data_single(
+            MultiprocessingSearch(config, logger),
+            filepath,
+            queries,
+            num_runs,
+            reread_on_query,
+            logger,
+        )
+    )
+
     return results
 
 
@@ -175,7 +185,7 @@ def main():
     }
 
     # Generate test files in parallel
-    with ThreadPoolExecutor() as executor:
+    with ProcessPoolExecutor() as executor:
         futures = [
             executor.submit(
                 generate_test_file,
@@ -203,14 +213,11 @@ def main():
             sys.exit()
 
     all_test_data = []
-    with multiprocessing.Pool() as pool:
-        test_params = [
-            (filepath, queries, num_runs, reread, logger)
-            for filepath in filepaths
-            for reread in [True, False]
-        ]
-        results = pool.starmap(_run_tests_for_file, test_params)
-        all_test_data.extend(results)
+    for filepath in filepaths:
+        for reread in [True, False]:
+            all_test_data.extend(
+                _run_tests_for_file(filepath, queries, num_runs, reread, logger)
+            )
 
     for reread, output_file in output_files.items():
         data_to_save = [

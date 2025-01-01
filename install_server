@@ -1,40 +1,69 @@
 #!/bin/bash
 
 # Check if the script is run with sudo
-if [ "$EUID" -ne 0 ]; then
-  echo "Please run this script with sudo privileges."
-  exit 1
-fi
+# if [ "$EUID" -ne 0 ]; then
+#   echo "Please run this script with sudo privileges."
+#   exit 1
+# fi
 
 # Set variables
 SERVICE_FILE="algo-server.service"
 PROJECT_DIR=$(pwd)
 SERVICE_DEST="/etc/systemd/system/"
-SERVICE_SRC="$PROJECT_DIR/$SERVICE_FILE"
+SERVICE_PATH="$SERVICE_DEST/$SERVICE_FILE"
+SERVER_SCRIPT_PATH="$PROJECT_DIR/core/server.py"
+USER_NAME=$(whoami)
 
-# Check if the service file exists
-if [ ! -f "$SERVICE_SRC" ]; then
-  echo "Error: Service file not found at $SERVICE_SRC"
-  exit 1
+# Check if the service file already exists in the systemd directory
+if [ -f "$SERVICE_PATH" ]; then
+  echo "Service file already exists at $SERVICE_PATH. Skipping creation."
+else
+  echo "Service file does not exist. Creating it..."
+  # Prompt for the config file path
+  read -p "Enter the path to your config file (e.g., ./config.ini): " CONFIG_FILE_PATH
+
+  # Check if the config file exists
+  if [ ! -f "$CONFIG_FILE_PATH" ]; then
+    echo "Error: Config file not found at $CONFIG_FILE_PATH"
+    echo "Please create the config file at this location and run the script again."
+    exit 1
+  fi
+
+  # Create the service file content
+  SERVICE_CONTENT="[Unit]
+Description=Algo Assessment Server
+After=network.target
+
+[Service]
+User=$USER_NAME
+WorkingDirectory=$PROJECT_DIR
+ExecStart=$SERVER_SCRIPT_PATH --config $CONFIG_FILE_PATH
+Restart=on-failure
+# Add this line if you want to use a custom user to run the service.
+#User=$USER_NAME
+#Add this line if you want to use a custom group to run the service
+#Group=
+
+[Install]
+WantedBy=multi-user.target
+"
+
+  # Write the service file
+  echo "Creating service file: $SERVICE_PATH"
+  echo "$SERVICE_CONTENT" > "$SERVICE_PATH"
 fi
 
-# Check if the destination exists
-if [ ! -d "$SERVICE_DEST" ]; then
-  echo "Error: Destination directory does not exist: $SERVICE_DEST"
-  exit 1
-fi
-
-echo "Copying service file..."
-cp "$SERVICE_SRC" "$SERVICE_DEST"
-
+# Reload systemd
 echo "Reloading systemd daemon..."
 systemctl daemon-reload
 
+# Start the service
 echo "Starting the service..."
 systemctl start "$SERVICE_FILE"
 
+# Enable the service
 echo "Enabling the service at boot..."
 systemctl enable "$SERVICE_FILE"
 
-echo "Service installed and started successfully."
+echo "Service installation complete."
 echo "You can check status with: sudo systemctl status $SERVICE_FILE"

@@ -61,20 +61,6 @@ The `AlgoAssessment` project provides a TCP server that listens for incoming str
     ```
     This command installs all dependencies from `pyproject.toml` (including dev dependencies).
 
-### Alternative Method using `requirements.txt`
- If you would prefer not to use `poetry`, you can use a virtual environment using the `requirements.txt` file.
-
-1.   **Create virtual environment**:
-```bash
-    python3 -m venv .venv
-    source .venv/bin/activate
-```
-2.  **Install dependencies**
-    ```bash
-    pip install -r requirements.txt
-    ```
-    This command will install all of the dependencies from the `requirements.txt` file.
-
 ## Project Structure
 
 The project's folder structure is organized as follows:
@@ -86,7 +72,7 @@ The project's folder structure is organized as follows:
 ├── pyproject.toml        # Poetry configuration file.
 ├── README.md             # This file.
 ├── requirements.txt      # Requirements file
-├── src                   # Source code for the application.
+├── core                   # Source code for the application.
 │   ├── client.py         # Client application.
 │   ├── config.py         # Configuration module.
 │   ├── logger.py         # Logging module.
@@ -129,6 +115,7 @@ The following are optional arguments, that can be used to modify how the server 
 *   `--reread_on_query` : Set to `True` to reread the file on every query.
 *   `--certfile CERTFILE` : Specifies the path to your SSL certificate.
 *  `--keyfile KEYFILE` : Specifies the path to your SSL private key.
+*  `--search-algorithm SEARCH_ALGORITHM` : Specifies the search algorithm to use.
 
 If the `--port` parameter is not specified, the server will search for a dynamically assigned port within the range of 44445 to 45445. The logs will show you what port was assigned.
 
@@ -148,7 +135,7 @@ If you choose not to specify a port, the server will automatically search for an
     [Service]
     User=your_user  # Replace with your actual user
     WorkingDirectory=/path/to/your/project  # Replace with your actual project path
-    ExecStart=/path/to/your/project/src/server.py --config /path/to/your/project/config.ini # Replace with your actual server path, and config
+    ExecStart=/path/to/your/project/core/server.py --config /path/to/your/project/config.ini # Replace with your actual server path, and config
     Restart=on-failure
     # Add this line if you want to use a custom user to run the service.
     #User=your_username
@@ -188,7 +175,7 @@ If you choose not to specify a port, the server will automatically search for an
 The client can be run using the following command:
 
 ```bash
-python src/client.py --query "your_query" [OPTIONS]
+python core/client.py --query "your_query" [OPTIONS]
 ```
 
 *   **Required:**

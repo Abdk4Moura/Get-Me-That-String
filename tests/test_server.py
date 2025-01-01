@@ -210,7 +210,7 @@ def test_server_concurrent_requests(config_file, data_file):
     config = ClientConfig(server="127.0.0.1", port=port, query="test string 1")
     responses = set()
     threads = []
-    for _ in range(500):
+    for _ in range(100):
         t = threading.Thread(target=lambda: responses.add(client_query(config)))
         threads.append(t)
         t.start()

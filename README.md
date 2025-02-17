@@ -30,7 +30,7 @@ This project implements a multithreaded TCP server that efficiently searches for
 
 ## Project Description
 
-The `AlgoAssessment` project provides a TCP server that listens for incoming string queries. It searches a specified file for a full-line match of the query string. The server supports multithreading for handling multiple concurrent requests and can be configured with SSL authentication. The performance of multiple algorithms have been analyzed, tested, and compared to each other.
+The `Get-Me-That-String` project provides a TCP server that listens for incoming string queries. It searches a specified file for a full-line match of the query string. The server supports multithreading for handling multiple concurrent requests and can be configured with SSL authentication. The performance of multiple algorithms have been analyzed, tested, and compared to each other.
 
 ## Setup and Installation
 

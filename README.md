@@ -1,4 +1,4 @@
-# AlgoAssessment: A String Matching Server
+# A String Matching Server
 
 This project implements a multithreaded TCP server that efficiently searches for exact string matches within a file. The server is highly configurable and designed to be robust and performant. This document will guide you from setting up the project, to running the tests, and how to use the server and the client applications.
 
